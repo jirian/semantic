@@ -62,7 +62,7 @@ def Ty.subst : Ty sort s1 -> Subst s1 s2 -> Ty sort s2
 | .unit, _ => .unit
 | .cap, _ => .cap
 | .bool, _ => .bool
-| .cell, _ => .cell
+| .cell T, s => .cell (T.subst s)
 | .capt cs T, s => .capt (cs.subst s) (T.subst s)
 | .exi T, s => .exi (T.subst s.lift)
 | .typ T, s => .typ (T.subst s)
@@ -82,6 +82,7 @@ def Exp.subst : Exp s1 -> Subst s1 s2 -> Exp s2
 | .unit, _ => .unit
 | .btrue, _ => .btrue
 | .bfalse, _ => .bfalse
+| .alloc x, s => .alloc (x.subst s)
 | .read x, s => .read (x.subst s)
 | .write x y, s => .write (x.subst s) (y.subst s)
 | .cond x e2 e3, s => .cond (x.subst s) (e2.subst s) (e3.subst s)
@@ -282,7 +283,9 @@ theorem Ty.weaken_subst_comm {T : Ty sort (s1 ++ K)} {σ : Subst s1 s2} :
   | .unit => rfl
   | .cap => rfl
   | .bool => rfl
-  | .cell => rfl
+  | .cell T =>
+    have ihT := Ty.weaken_subst_comm (T:=T) (σ:=σ) (K:=K) (k0:=k0)
+    simp [Ty.subst, Ty.rename, ihT]
   | .capt cs T =>
     have ihT := Ty.weaken_subst_comm (T:=T) (σ:=σ) (K:=K) (k0:=k0)
     have ihCS := CaptureSet.weaken_subst_comm_liftMany (cs:=cs) (σ:=σ) (K:=K) (k0:=k0)
@@ -416,7 +419,7 @@ theorem Ty.subst_comp {T : Ty sort s1} {σ1 : Subst s1 s2} {σ2 : Subst s2 s3} :
   | unit => rfl
   | cap => rfl
   | bool => rfl
-  | cell => rfl
+  | cell T ih => simp [Ty.subst, ih]
   | capt cs T ih =>
     simp [Ty.subst, ih, CaptureSet.subst_comp]
   | exi T ih =>
@@ -460,6 +463,7 @@ theorem Exp.subst_comp {e : Exp s1} {σ1 : Subst s1 s2} {σ2 : Subst s2 s3} :
   | unit => rfl
   | btrue => rfl
   | bfalse => rfl
+  | alloc x => simp [Exp.subst, Var.subst_comp]
   | read x => simp [Exp.subst, Var.subst_comp]
   | write x y => simp [Exp.subst, Var.subst_comp]
   | cond x e2 e3 ih2 ih3 =>
@@ -523,7 +527,7 @@ theorem Ty.subst_id {T : Ty sort s} :
   | unit => rfl
   | cap => rfl
   | bool => rfl
-  | cell => rfl
+  | cell T ih => simp [Ty.subst, ih]
   | capt cs T ih =>
     simp [Ty.subst, ih, CaptureSet.subst_id]
   | exi T ih =>
@@ -571,6 +575,8 @@ theorem Exp.subst_id {e : Exp s} :
     rfl
   | btrue => rfl
   | bfalse => rfl
+  | alloc x =>
+    simp [Exp.subst, Var.subst_id]
   | read x =>
     simp [Exp.subst, Var.subst_id]
   | write x y =>
@@ -649,7 +655,7 @@ theorem Ty.subst_asSubst {T : Ty sort s1} {f : Rename s1 s2} :
   | unit => rfl
   | cap => rfl
   | bool => rfl
-  | cell => rfl
+  | cell T ih => simp [Ty.subst, Ty.rename, ih]
   | capt cs T ih =>
     simp [Ty.subst, Ty.rename, ih, CaptureSet.subst_asSubst]
   | exi T ih =>
@@ -699,6 +705,8 @@ theorem Exp.subst_asSubst {e : Exp s1} {f : Rename s1 s2} :
     rfl
   | bfalse =>
     rfl
+  | alloc x =>
+    simp [Exp.subst, Exp.rename, Var.subst_asSubst]
   | read x =>
     simp [Exp.subst, Exp.rename, Var.subst_asSubst]
   | write x y =>
@@ -873,7 +881,9 @@ private theorem Ty.rename_closed_any {T : Ty sort s1} {f : Rename s1 s2}
   | unit => exact IsClosed.unit
   | cap => exact IsClosed.cap
   | bool => exact IsClosed.bool
-  | cell => exact IsClosed.cell
+  | cell T ih =>
+    cases hc with | cell hT =>
+    exact IsClosed.cell (ih hT)
   | capt cs T ih =>
     cases hc with | capt h1 h2 =>
     exact IsClosed.capt (CaptureSet.rename_closed_any h1) (ih h2)
@@ -922,7 +932,9 @@ def Ty.is_closed_subst {T : Ty sort s1} {σ : Subst s1 s2}
   | unit => exact IsClosed.unit
   | cap => exact IsClosed.cap
   | bool => exact IsClosed.bool
-  | cell => exact IsClosed.cell
+  | cell T ih =>
+    cases hc with | cell hT =>
+    exact IsClosed.cell (ih hT hsubst)
   | capt cs S ih =>
     cases hc with | capt h1 h2 =>
     exact IsClosed.capt (CaptureSet.is_closed_subst h1 hsubst) (ih h2 hsubst)
@@ -974,6 +986,9 @@ def Exp.is_closed_subst {e : Exp s1} {σ : Subst s1 s2}
   | unit => exact IsClosed.unit
   | btrue => exact IsClosed.btrue
   | bfalse => exact IsClosed.bfalse
+  | alloc x =>
+    cases hc with | alloc hx =>
+    exact IsClosed.alloc (Var.is_closed_subst hx hsubst)
   | read x =>
     cases hc with | read hx =>
     exact IsClosed.read (Var.is_closed_subst hx hsubst)
@@ -1089,7 +1104,9 @@ theorem Ty.subst_closed_inv {T : Ty sort s1} {σ : Subst s1 s2}
   | unit => exact IsClosed.unit
   | cap => exact IsClosed.cap
   | bool => exact IsClosed.bool
-  | cell => exact IsClosed.cell
+  | cell T ih =>
+    cases hclosed with | cell hT =>
+    exact IsClosed.cell (ih hT)
   | capt cs T ih =>
     cases hclosed with | capt h1 h2 =>
     exact IsClosed.capt (CaptureSet.subst_closed_inv h1) (ih h2)
@@ -1134,6 +1151,8 @@ theorem Exp.subst_closed_inv {e : Exp s1} {σ : Subst s1 s2}
   | unit => exact IsClosed.unit
   | btrue => exact IsClosed.btrue
   | bfalse => exact IsClosed.bfalse
+  | alloc x =>
+    cases hclosed with | alloc hx => exact IsClosed.alloc (Var.subst_closed_inv hx)
   | read x =>
     cases hclosed with | read hx => exact IsClosed.read (Var.subst_closed_inv hx)
   | write x y =>

@@ -71,7 +71,6 @@ theorem rebind_captureset_denot
   {s1 s2 : Sig} {env1 : TypeEnv s1} {f : Rename s1 s2} {env2 : TypeEnv s2}
   (ρ : Rebind env1 f env2) (C : CaptureSet s1) :
   CaptureSet.denot env1 C = CaptureSet.denot env2 (C.rename f) := by
-  -- Use rebind_resolved_capture_set
   unfold CaptureSet.denot
   congr 1
   exact rebind_resolved_capture_set ρ
@@ -96,92 +95,92 @@ def rebind_shape_val_denot
   Ty.shape_val_denot env1 T ≈ Ty.shape_val_denot env2 (T.rename f) :=
   match T with
   | .top => by
-    intro A s0 e0
+    intro A k st m e
     simp only [Ty.shape_val_denot, Ty.rename]
   | .tvar X => by
-    apply PreDenot.eq_to_equiv
+    apply IPreDenot.eq_to_equiv
     have h := ρ.var X
     cases k : env1.lookup X
     case tvar d =>
       simp [k] at h
       simp only [Ty.shape_val_denot, Ty.rename, TypeEnv.lookup_tvar, k, h]
   | .unit => by
-    intro A s0 e0
+    intro A k st m e
     simp only [Ty.shape_val_denot, Ty.rename]
   | .cap => by
-    intro A s0 e0
+    intro A k st m e
     simp only [Ty.shape_val_denot, Ty.rename]
   | .bool => by
-    intro A s0 e0
+    intro A k st m e
     simp only [Ty.shape_val_denot, Ty.rename]
-  | .cell => by
-    intro A s0 e0
+  | .cell T => by
+    have ih := rebind_capt_val_denot ρ T
+    intro A k st m e
     simp only [Ty.shape_val_denot, Ty.rename]
+    constructor
+    · rintro ⟨l, n0, Rl, heq, hlk, hmem, hst, hbi⟩
+      refine ⟨l, n0, Rl, heq, hlk, hmem, hst, ?_⟩
+      intro j w' m' e'
+      rw [hbi j w' m' e']
+      exact ih j.val w' m' e'
+    · rintro ⟨l, n0, Rl, heq, hlk, hmem, hst, hbi⟩
+      refine ⟨l, n0, Rl, heq, hlk, hmem, hst, ?_⟩
+      intro j w' m' e'
+      rw [hbi j w' m' e']
+      exact (ih j.val w' m' e').symm
   | .arrow T1 T2 => by
     have ih1 := rebind_capt_val_denot ρ T1
-    intro A s0 e0
+    intro A k st m e
     simp only [Ty.shape_val_denot, Ty.rename]
     constructor
     · rintro ⟨hwf_e, cs, T0, t0, hr, hwf, hR0_sub, hd⟩
       refine ⟨hwf_e, cs, T0, t0, hr, hwf, hR0_sub, ?_⟩
-      intro arg H' hsub harg
-      cases T1 with
-      | capt C S =>
-        have ih2 := rebind_exi_exp_denot (ρ.liftVar (x := arg)) T2
-        have harg' := (ih1 _ _).mpr harg
-        specialize hd arg H' hsub harg'
-        exact
-          (ih2 (expand_captures s0.heap cs ∪ reachability_of_loc H'.heap arg) H' _).mp hd
-    · rintro ⟨hwf_e, cs0, T0, t0, hr, hwf, hR0_sub, hd⟩
-      refine ⟨hwf_e, cs0, T0, t0, hr, hwf, hR0_sub, ?_⟩
-      intro arg H' hsub harg
-      cases T1 with
-      | capt C S =>
-        have ih2 := rebind_exi_exp_denot (ρ.liftVar (x := arg)) T2
-        have harg' := (ih1 _ _).mp harg
-        specialize hd arg H' hsub harg'
-        exact
-          (ih2 (expand_captures s0.heap cs0 ∪ reachability_of_loc H'.heap arg) H' _).mpr hd
+      intro j hjk st' m' arg hwle harg
+      have ih2 := rebind_exi_val_denot (ρ.liftVar (x := arg)) T2
+      have harg' := (ih1 _ _ _ _).mpr harg
+      exact (ExpDenot.equiv ih2).mp (hd j hjk st' m' arg hwle harg')
+    · rintro ⟨hwf_e, cs, T0, t0, hr, hwf, hR0_sub, hd⟩
+      refine ⟨hwf_e, cs, T0, t0, hr, hwf, hR0_sub, ?_⟩
+      intro j hjk st' m' arg hwle harg
+      have ih2 := rebind_exi_val_denot (ρ.liftVar (x := arg)) T2
+      have harg' := (ih1 _ _ _ _).mp harg
+      exact (ExpDenot.equiv ih2).mpr (hd j hjk st' m' arg hwle harg')
   | .poly T1 T2 => by
     have ih1 := rebind_shape_val_denot ρ T1
-    intro A s0 e0
+    intro A k st m e
     simp only [Ty.shape_val_denot, Ty.rename]
     constructor
     · rintro ⟨hwf_e, cs0, S0, t0, hr, hwf, hR0_sub, hd⟩
       refine ⟨hwf_e, cs0, S0, t0, hr, hwf, hR0_sub, ?_⟩
-      intro H' denot hsub hproper himply
-      have ih2 := rebind_exi_exp_denot (ρ.liftTVar (d := denot)) T2
-      have himply' : denot.ImplyAfter H' (Ty.shape_val_denot env1 T1) := by
-        intro H'' hsub' A' e hdenot
-        exact (ih1 _ _ _).mpr (himply H'' hsub' A' e hdenot)
-      specialize hd H' denot hsub hproper himply'
-      exact (ih2 (expand_captures s0.heap cs0) H' _).mp hd
+      intro j hjk st' m' denot hwle hproper himply
+      have ih2 := rebind_exi_val_denot (ρ.liftTVar (d := denot)) T2
+      have himply' : denot.ImplyAfter j st' m' (Ty.shape_val_denot env1 T1) := by
+        intro C i hij st'' m'' hwle' e' hdenot
+        exact (ih1 C i st'' m'' e').mpr (himply C i hij st'' m'' hwle' e' hdenot)
+      exact (ExpDenot.equiv ih2).mp (hd j hjk st' m' denot hwle hproper himply')
     · rintro ⟨hwf_e, cs0, S0, t0, hr, hwf, hR0_sub, hd⟩
       refine ⟨hwf_e, cs0, S0, t0, hr, hwf, hR0_sub, ?_⟩
-      intro H' denot hsub hproper himply
-      have ih2 := rebind_exi_exp_denot (ρ.liftTVar (d := denot)) T2
-      have himply' : denot.ImplyAfter H' (Ty.shape_val_denot env2 (T1.rename f)) := by
-        intro H'' hsub' A' e hdenot
-        exact (ih1 _ _ _).mp (himply H'' hsub' A' e hdenot)
-      specialize hd H' denot hsub hproper himply'
-      exact (ih2 (expand_captures s0.heap cs0) H' _).mpr hd
+      intro j hjk st' m' denot hwle hproper himply
+      have ih2 := rebind_exi_val_denot (ρ.liftTVar (d := denot)) T2
+      have himply' : denot.ImplyAfter j st' m' (Ty.shape_val_denot env2 (T1.rename f)) := by
+        intro C i hij st'' m'' hwle' e' hdenot
+        exact (ih1 C i st'' m'' e').mp (himply C i hij st'' m'' hwle' e' hdenot)
+      exact (ExpDenot.equiv ih2).mpr (hd j hjk st' m' denot hwle hproper himply')
   | .cpoly B T => by
     have hB := rebind_capturebound_denot ρ B
-    intro A s0 e0
+    intro A k st m e
     simp only [Ty.shape_val_denot, Ty.rename, hB]
     constructor
     · rintro ⟨hwf_e, cs0, B0, t0, hr, hwf, hR0_sub, hd⟩
       refine ⟨hwf_e, cs0, B0, t0, hr, hwf, hR0_sub, ?_⟩
-      intro H' CS hwf hsub hsub_bound
-      have ih2 := rebind_exi_exp_denot (ρ.liftCVar CS) T
-      specialize hd H' CS hwf hsub hsub_bound
-      exact (ih2 (expand_captures s0.heap cs0) H' _).mp hd
+      intro j hjk st' m' CS hwf hwle hsub_bound
+      have ih2 := rebind_exi_val_denot (ρ.liftCVar CS) T
+      exact (ExpDenot.equiv ih2).mp (hd j hjk st' m' CS hwf hwle hsub_bound)
     · rintro ⟨hwf_e, cs0, B0, t0, hr, hwf, hR0_sub, hd⟩
       refine ⟨hwf_e, cs0, B0, t0, hr, hwf, hR0_sub, ?_⟩
-      intro H' CS hwf hsub hsub_bound
-      have ih2 := rebind_exi_exp_denot (ρ.liftCVar CS) T
-      specialize hd H' CS hwf hsub hsub_bound
-      exact (ih2 (expand_captures s0.heap cs0) H' _).mpr hd
+      intro j hjk st' m' CS hwf hwle hsub_bound
+      have ih2 := rebind_exi_val_denot (ρ.liftCVar CS) T
+      exact (ExpDenot.equiv ih2).mpr (hd j hjk st' m' CS hwf hwle hsub_bound)
 
 def rebind_capt_val_denot
   {s1 s2 : Sig} {env1 : TypeEnv s1} {f : Rename s1 s2} {env2 : TypeEnv s2}
@@ -191,18 +190,18 @@ def rebind_capt_val_denot
   | .capt C S => by
     have hC := rebind_captureset_denot ρ C
     have hS := rebind_shape_val_denot ρ S
-    intro s e
+    intro k st m e
     simp only [Ty.capt_val_denot, Ty.rename]
     rw [← hC]
     constructor
     · rintro ⟨hsimple, hwf_e, hwf_C, hshape⟩
       refine ⟨hsimple, hwf_e, ?_, ?_⟩
       · rw [← rebind_resolved_capture_set ρ]; exact hwf_C
-      · exact (hS (C.denot env1 s) s e).mp hshape
+      · exact (hS (C.denot env1 m) k st m e).mp hshape
     · rintro ⟨hsimple, hwf_e, hwf_C, hshape⟩
       refine ⟨hsimple, hwf_e, ?_, ?_⟩
       · rw [rebind_resolved_capture_set ρ]; exact hwf_C
-      · exact (hS (C.denot env1 s) s e).mpr hshape
+      · exact (hS (C.denot env1 m) k st m e).mpr hshape
 
 def rebind_exi_val_denot
   {s1 s2 : Sig} {env1 : TypeEnv s1} {f : Rename s1 s2} {env2 : TypeEnv s2}
@@ -211,67 +210,42 @@ def rebind_exi_val_denot
   match T with
   | .typ T => by
     have ih := rebind_capt_val_denot ρ T
-    intro s e
-    simpa only [Ty.exi_val_denot, Ty.rename] using ih s e
+    intro k st m e
+    simpa only [Ty.exi_val_denot, Ty.rename] using ih k st m e
   | .exi T => by
-    intro s e
+    intro k st m e
     simp only [Ty.exi_val_denot, Ty.rename]
-    cases hresolve : resolve s.heap e
-    case none => rfl
-    case some =>
-      rename_i e'
-      cases e'
-      case pack =>
-        rename_i CS y
-        have ih := rebind_capt_val_denot (ρ.liftCVar CS) T
-        constructor
-        · rintro ⟨hwf, hcapt⟩
-          exact ⟨hwf, (ih s (Exp.var y)).mp hcapt⟩
-        · rintro ⟨hwf, hcapt⟩
-          exact ⟨hwf, (ih s (Exp.var y)).mpr hcapt⟩
-      all_goals rfl
+    constructor
+    · rintro ⟨CS, y, hres, hwf, hcapt⟩
+      have ih := rebind_capt_val_denot (ρ.liftCVar CS) T
+      exact ⟨CS, y, hres, hwf, (ih k st m (Exp.var y)).mp hcapt⟩
+    · rintro ⟨CS, y, hres, hwf, hcapt⟩
+      have ih := rebind_capt_val_denot (ρ.liftCVar CS) T
+      exact ⟨CS, y, hres, hwf, (ih k st m (Exp.var y)).mpr hcapt⟩
+
+end
 
 def rebind_capt_exp_denot
   {s1 s2 : Sig} {env1 : TypeEnv s1} {f : Rename s1 s2} {env2 : TypeEnv s2}
   (ρ : Rebind env1 f env2) (T : Ty .capt s1) :
   Ty.capt_exp_denot env1 T ≈ Ty.capt_exp_denot env2 (T.rename f) := by
   have ih := rebind_capt_val_denot ρ T
-  intro A s e
-  simp only [Ty.capt_exp_denot]
-  constructor
-  · intro h
-    apply eval_post_monotonic _ h
-    apply Denot.imply_to_entails
-    exact (Denot.equiv_to_imply ih).1
-  · intro h
-    apply eval_post_monotonic _ h
-    apply Denot.imply_to_entails
-    exact (Denot.equiv_to_imply ih).2
+  intro A k st m e
+  exact ExpDenot.equiv ih
 
 def rebind_exi_exp_denot
   {s1 s2 : Sig} {env1 : TypeEnv s1} {f : Rename s1 s2} {env2 : TypeEnv s2}
   (ρ : Rebind env1 f env2) (T : Ty .exi s1) :
   Ty.exi_exp_denot env1 T ≈ Ty.exi_exp_denot env2 (T.rename f) := by
   have ih := rebind_exi_val_denot ρ T
-  intro A s e
-  simp only [Ty.exi_exp_denot]
-  constructor
-  · intro h
-    apply eval_post_monotonic _ h
-    apply Denot.imply_to_entails
-    exact (Denot.equiv_to_imply ih).1
-  · intro h
-    apply eval_post_monotonic _ h
-    apply Denot.imply_to_entails
-    exact (Denot.equiv_to_imply ih).2
-
-end
+  intro A k st m e
+  exact ExpDenot.equiv ih
 
 def Rebind.weaken {env : TypeEnv s} {x : Nat} :
   Rebind env Rename.succ (env.extend_var x) where
   var := fun _ => rfl
 
-def Rebind.tweaken {env : TypeEnv s} {d : PreDenot} :
+def Rebind.tweaken {env : TypeEnv s} {d : IPreDenot} :
   Rebind env Rename.succ (env.extend_tvar d) where
   var := fun _ => rfl
 

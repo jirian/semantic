@@ -1,115 +1,147 @@
 import Semantic.CC.Syntax
 import Semantic.CC.Substitution
 import Semantic.CC.Semantics.Heap
+import Semantic.CC.Semantics.Trace
 
 namespace CC
 
-/-- Small-step evaluation relation indexed by a precise capability set.
-  Step C m e m' e' means that expression e in memory m steps to e' in memory m'
-  using exactly the capabilities in C. -/
-inductive Step : CapabilitySet -> Memory -> Exp {} -> Memory -> Exp {} -> Prop where
+/-- Small-step evaluation relation instrumented with a trace.
+  `Step t m e m' e'` means that expression `e` in memory `m` steps to `e'` in memory `m'`,
+  emitting the trace `t` of heap events performed by this step. -/
+inductive Step : Trace -> Memory -> Exp {} -> Memory -> Exp {} -> Prop where
 | step_apply :
   m.lookup x = some (.val ⟨.abs cs T e, hv, R⟩) ->
-  Step {} m (.app (.free x) (.free y)) m (e.subst (Subst.openVar (.free y)))
+  Step [] m (.app (.free x) (.free y)) m (e.subst (Subst.openVar (.free y)))
 | step_invoke :
   m.lookup x = some (.capability .basic) ->
   m.lookup y = some (.val ⟨.unit, hv, R⟩) ->
-  Step (.cap x) m (.app (.free x) (.free y)) m .unit
+  Step [.access x] m (.app (.free x) (.free y)) m .unit
 | step_tapply :
   m.lookup x = some (.val ⟨.tabs cs S' e, hv, R⟩) ->
-  Step {} m (.tapp (.free x) S) m (e.subst (Subst.openTVar .top))
+  Step [] m (.tapp (.free x) S) m (e.subst (Subst.openTVar .top))
 | step_capply :
   m.lookup x = some (.val ⟨.cabs cs B e, hv, R⟩) ->
-  Step {} m (.capp (.free x) CS) m (e.subst (Subst.openCVar CS))
+  Step [] m (.capp (.free x) CS) m (e.subst (Subst.openCVar CS))
 | step_cond_var_true :
   m.lookup x = some (.val ⟨.btrue, hv, R⟩) ->
-  Step {} m (.cond (.free x) e1 e2) m e1
+  Step [] m (.cond (.free x) e1 e2) m e1
 | step_cond_var_false :
   m.lookup x = some (.val ⟨.bfalse, hv, R⟩) ->
-  Step {} m (.cond (.free x) e1 e2) m e2
+  Step [] m (.cond (.free x) e1 e2) m e2
+-- `read` dereferences the cell: it returns a reference to the stored location `n`.
 | step_read :
-  m.lookup x = some (.capability (.mcell b)) ->
-  Step (.cap x) m (.read (.free x)) m (if b then .btrue else .bfalse)
-| step_write_true :
-  (hx : m.lookup x = some (.capability (.mcell b0))) ->
-  m.lookup y = some (.val ⟨.btrue, hv, R⟩) ->
-  Step (.cap x) m (.write (.free x) (.free y)) (m.update_mcell x true ⟨b0, hx⟩) .unit
-| step_write_false :
-  (hx : m.lookup x = some (.capability (.mcell b0))) ->
-  m.lookup y = some (.val ⟨.bfalse, hv, R⟩) ->
-  Step (.cap x) m (.write (.free x) (.free y)) (m.update_mcell x false ⟨b0, hx⟩) .unit
+  m.lookup x = some (.capability (.mcell n)) ->
+  Step [.read x] m (.read (.free x)) m (.var (.free n))
+-- `write` stores the location `y` of the (present) new content.
+| step_write :
+  (hx : m.lookup x = some (.capability (.mcell n0))) ->
+  (hy : m.heap y ≠ none) ->
+  Step [.access x] m (.write (.free x) (.free y)) (m.update_mcell x y ⟨n0, hx⟩ hy) .unit
+-- `alloc` creates a fresh cell storing `x`, and returns it packed with its own
+-- capture set as evidence.
+| step_alloc :
+  (hx : m.heap x ≠ none) ->
+  (hfresh : m.heap l = none) ->
+  Step [.alloc l] m (.alloc (.free x))
+    (m.extend_mcell l x hfresh hx)
+    (.pack (.var (.free l)) (.free l))
 | step_ctx_letin :
-  Step C m e1 m' e1' ->
-  Step C m (.letin e1 e2) m' (.letin e1' e2)
+  Step t m e1 m' e1' ->
+  Step t m (.letin e1 e2) m' (.letin e1' e2)
 | step_ctx_unpack :
-  Step C m e1 m' e1' ->
-  Step C m (.unpack e1 e2) m' (.unpack e1' e2)
+  Step t m e1 m' e1' ->
+  Step t m (.unpack e1 e2) m' (.unpack e1' e2)
 | step_rename :
-  Step {} m (.letin (.var (.free y)) e) m (e.subst (Subst.openVar (.free y)))
+  Step [] m (.letin (.var (.free y)) e) m (e.subst (Subst.openVar (.free y)))
+-- Lifting a value to the heap is not a capability event: it emits no trace.
 | step_lift :
   (hv : Exp.IsSimpleVal v) ->
   (hwf : Exp.WfInHeap v m.heap) ->
   (hfresh : m.heap l = none) ->
   Step
-    {}
+    []
     m (.letin v e)
-    (m.extend l ⟨v, hv, compute_reachability m.heap v hv⟩ hwf rfl hfresh)
+    (m.extend_val l ⟨v, hv, compute_reachability m.heap v hv⟩ hwf rfl hfresh)
     (e.subst (Subst.openVar (.free l)))
 | step_unpack :
-  Step {} m (.unpack (.pack cs (.free x)) e) m (e.subst (Subst.unpack cs (.free x)))
+  Step [] m (.unpack (.pack cs (.free x)) e) m (e.subst (Subst.unpack cs (.free x)))
 
-/-- Multi-step reduction relation: reflexive-transitive closure of Step.
-  Reduce C m e m' e' means that e in memory m takes multiple steps to e' in memory m'
-  using exactly the capabilities in C (union of all step capabilities).
-
-  Note: The capability set is precise - it's exactly what was used.
-  Due to union not being definitionally associative, we define an equivalence-respecting
-  version of transitivity. -/
-inductive Reduce : CapabilitySet -> Memory -> Exp {} -> Memory -> Exp {} -> Prop where
+/-- Multi-step reduction: the reflexive-transitive closure of `Step`, accumulating the
+  traces of the individual steps in order. -/
+inductive Reduce : Trace -> Memory -> Exp {} -> Memory -> Exp {} -> Prop where
 | refl :
-  Reduce {} m e m e
+  Reduce [] m e m e
 | step :
-  Step C1 m1 e1 m2 e2 ->
-  Reduce C2 m2 e2 m3 e3 ->
-  Reduce (C1 ∪ C2) m1 e1 m3 e3
+  Step t1 m1 e1 m2 e2 ->
+  Reduce t2 m2 e2 m3 e3 ->
+  Reduce (t1 ++ t2) m1 e1 m3 e3
 
--- Transitivity: the result capability set is equivalent to C1 ∪ C2
--- but may not be syntactically equal
 theorem reduce_trans
-  (hred1 : Reduce C1 m1 e1 m2 e2)
-  (hred2 : Reduce C2 m2 e2 m3 e3) :
-  ∃ C, C.equiv (C1 ∪ C2) ∧ Reduce C m1 e1 m3 e3 := by
+  (hred1 : Reduce t1 m1 e1 m2 e2)
+  (hred2 : Reduce t2 m2 e2 m3 e3) :
+  Reduce (t1 ++ t2) m1 e1 m3 e3 := by
   induction hred1 with
-  | refl =>
-    -- C1 = {}, need C equiv ({} ∪ C2) and Reduce C m e m3 e3
-    exact ⟨C2, CapabilitySet.equiv_symm CapabilitySet.empty_union_equiv, hred2⟩
-  | step hstep rest ih =>
-    -- C1 = C1_step ∪ C1_rest
-    -- ih : ∃ C, C.equiv (C1_rest ∪ C2) ∧ Reduce C m_mid e_mid m3 e3
-    obtain ⟨C_rest, heq_rest, hred_rest⟩ := ih hred2
-    -- Build: Reduce (C1_step ∪ C_rest) m1 e1 m3 e3
-    refine ⟨_, ?_, Reduce.step hstep hred_rest⟩
-    -- Need: (C1_step ∪ C_rest).equiv ((C1_step ∪ C1_rest) ∪ C2)
-    intro x
-    constructor
-    · intro hmem
-      cases hmem with
-      | left h1 => exact CapabilitySet.mem.left (CapabilitySet.mem.left h1)
-      | right hr =>
-        have hx_in := (heq_rest x).mp hr
-        cases hx_in with
-        | left h1rest => exact CapabilitySet.mem.left (CapabilitySet.mem.right h1rest)
-        | right h2 => exact CapabilitySet.mem.right h2
-    · intro hmem
-      cases hmem with
-      | left h1 =>
-        cases h1 with
-        | left h1step => exact CapabilitySet.mem.left h1step
-        | right h1rest =>
-          have h := (heq_rest x).mpr (CapabilitySet.mem.left h1rest)
-          exact CapabilitySet.mem.right h
-      | right h2 =>
-        have h := (heq_rest x).mpr (CapabilitySet.mem.right h2)
-        exact CapabilitySet.mem.right h
+  | refl => exact hred2
+  | step h rest ih =>
+    rw [List.append_assoc]
+    exact Reduce.step h (ih hred2)
+
+theorem reduce_ctx_letin
+  (hred : Reduce t m e1 m' e1') :
+  Reduce t m (.letin e1 e2) m' (.letin e1' e2) := by
+  induction hred with
+  | refl => exact Reduce.refl
+  | step hstep _ ih => exact Reduce.step (Step.step_ctx_letin hstep) ih
+
+theorem reduce_ctx_unpack
+  (hred : Reduce t m e1 m' e1') :
+  Reduce t m (.unpack e1 e2) m' (.unpack e1' e2) := by
+  induction hred with
+  | refl => exact Reduce.refl
+  | step hstep _ ih => exact Reduce.step (Step.step_ctx_unpack hstep) ih
+
+/-- Answers (values and variables) take no step. -/
+theorem step_ans_absurd
+  (hans : Exp.IsAns e)
+  (hstep : Step t m e m' e') :
+  False := by
+  cases hans with
+  | is_val hv => cases hv <;> cases hstep
+  | is_var => cases hstep
+
+/-- A reduction from an answer is trivial. -/
+theorem reduce_ans_eq
+  (hans : Exp.IsAns e)
+  (hred : Reduce t m e m' e') :
+  m' = m ∧ e' = e ∧ t = [] := by
+  cases hred with
+  | refl => exact ⟨rfl, rfl, rfl⟩
+  | step hstep _ => exact (step_ans_absurd hans hstep).elim
+
+theorem step_memory_monotonic
+  (hstep : Step t m e m' e') :
+  m'.subsumes m := by
+  induction hstep with
+  | step_apply _ => exact Memory.subsumes_refl _
+  | step_invoke _ _ => exact Memory.subsumes_refl _
+  | step_tapply _ => exact Memory.subsumes_refl _
+  | step_capply _ => exact Memory.subsumes_refl _
+  | step_cond_var_true _ => exact Memory.subsumes_refl _
+  | step_cond_var_false _ => exact Memory.subsumes_refl _
+  | step_read _ => exact Memory.subsumes_refl _
+  | step_write hx hy => exact Memory.update_mcell_subsumes _ _ _ ⟨_, hx⟩ hy
+  | step_alloc hx hfresh => exact Memory.extend_mcell_subsumes _ _ _ hfresh hx
+  | step_ctx_letin _ ih => exact ih
+  | step_ctx_unpack _ ih => exact ih
+  | step_rename => exact Memory.subsumes_refl _
+  | step_lift hv hwf hfresh => exact Memory.extend_val_subsumes _ _ _ hwf rfl hfresh
+  | step_unpack => exact Memory.subsumes_refl _
+
+theorem reduce_memory_monotonic
+  (hred : Reduce t m e m' e') :
+  m'.subsumes m := by
+  induction hred with
+  | refl => exact Memory.subsumes_refl _
+  | step hstep _ ih => exact Memory.subsumes_trans ih (step_memory_monotonic hstep)
 
 end CC

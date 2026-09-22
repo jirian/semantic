@@ -88,34 +88,50 @@ theorem Heap.platform_of_has_fin_dom (N : Nat) :
     case isTrue => simp
     case isFalse hf => omega
 
-/-- Platform memory with `N` ground capabilities. -/
+/-- Platform memory with `N` ground capabilities. The platform holds no mutable cells,
+  so the content-closure invariant `mcell_wf` is vacuous. -/
 def Memory.platform_of (N : Nat) : Memory where
   heap := Heap.platform_of N
   wf := Heap.platform_of_wf N
   findom := ⟨Finset.range N, Heap.platform_of_has_fin_dom N⟩
+  mcell_wf := by
+    intro l n hlookup
+    unfold Heap.platform_of at hlookup
+    split at hlookup <;> cases hlookup
 
 /-- Platform memory M subsumes platform memory N when M ≥ N. -/
 theorem platform_memory_subsumes {N M : Nat} (hNM : N ≤ M) :
   (Memory.platform_of M).subsumes (Memory.platform_of N) := by
   intro l v hlookup
   unfold Memory.platform_of Heap.platform_of at hlookup ⊢
-  simp only [Option.ite_none_right_eq_some, Option.some.injEq, ↓existsAndEq, and_true] at hlookup ⊢
-  constructor
-  · omega
-  · exact hlookup.2
+  simp only [Option.ite_none_right_eq_some, Option.some.injEq] at hlookup
+  obtain ⟨hlN, rfl⟩ := hlookup
+  refine ⟨.capability .basic, ?_, Cell.subsumes_refl _⟩
+  simp only [if_pos (by omega : l < M)]
 
-/-- EnvTyping for platform is monotonic: platform N types in platform M memory when M ≥ N. -/
-theorem env_typing_platform_monotonic {Γ : Ctx s} {env : TypeEnv s} {N M : Nat}
+/-- EnvTyping for platform is monotonic in the memory (at a fixed budget/world): platform
+  `N` types in platform `M` memory when `M ≥ N`. -/
+theorem env_typing_platform_monotonic {Γ : Ctx s} {env : TypeEnv s} {N M k : Nat}
+  {st : StoreTyping k}
   (hNM : N ≤ M)
-  (ht : EnvTyping Γ env (Memory.platform_of N)) :
-  EnvTyping Γ env (Memory.platform_of M) := by
-  -- Use the existing monotonicity theorem for EnvTyping
-  exact env_typing_monotonic ht (platform_memory_subsumes hNM)
+  (ht : EnvTyping Γ env k st (Memory.platform_of N)) :
+  EnvTyping Γ env k st (Memory.platform_of M) :=
+  env_typing_monotonic ht (platform_memory_subsumes hNM)
 
-theorem env_typing_of_platform {N : Nat} :
+/-- Lookup of a platform capability location. -/
+theorem Heap.platform_of_lookup {N l : Nat} (hl : l < N) :
+  Heap.platform_of N l = some (.capability .basic) := by
+  unfold Heap.platform_of
+  rw [if_pos hl]
+
+/-- The platform environment types against the platform memory at any budget and any
+  store typing: the platform holds only basic capabilities, whose denotations are
+  world-independent. -/
+theorem env_typing_of_platform {N k : Nat} {st : StoreTyping k} :
   EnvTyping
     (Ctx.platform_of N)
     (TypeEnv.platform_of N)
+    k st
     (Memory.platform_of N) := by
   induction N with
   | zero =>
@@ -124,115 +140,81 @@ theorem env_typing_of_platform {N : Nat} :
   | succ N ih =>
     unfold Ctx.platform_of TypeEnv.platform_of EnvTyping
     simp only [List.empty_eq]
-    constructor
+    have hlk : Heap.platform_of (N + 1) N = some (.capability .basic) :=
+      Heap.platform_of_lookup (by omega)
+    refine ⟨?_, ?_, ?_, ?_, ?_⟩
     · -- Term variable x : .capt (.cvar .here) .cap at location N
       rw [capt_val_denot_capt]
-      constructor
-      · apply Exp.IsSimpleAns.is_var
-      · constructor
-        · apply Exp.WfInHeap.wf_var
-          apply Var.WfInHeap.wf_free
-          show (Heap.platform_of (N + 1)) N = some (.capability .basic)
-          unfold Heap.platform_of
-          simp
-        · constructor
-          · show CaptureSet.WfInHeap _ _
-            simp only [CaptureSet.subst, Subst.from_TypeEnv]
-            change CaptureSet.WfInHeap (CaptureSet.var (Var.free N)) _
-            apply CaptureSet.WfInHeap.wf_var_free
-            show (Heap.platform_of (N + 1)) N = some (.capability .basic)
-            unfold Heap.platform_of
-            simp
-          · change Ty.shape_val_denot _ Ty.cap _ _ _
-            rw [Ty.shape_val_denot.eq_4]
-            constructor
-            · apply Exp.WfInHeap.wf_var
-              apply Var.WfInHeap.wf_free
-              show (Heap.platform_of (N + 1)) N = some (.capability .basic)
-              unfold Heap.platform_of
-              simp
-            · use N
-              constructor
-              · rfl
-              · constructor
-                · show Memory.lookup _ N = _
-                  unfold Memory.lookup Memory.platform_of Heap.platform_of
-                  simp
-                · change N ∈ (CaptureSet.var (Var.free N)).ground_denot
-                    (Memory.platform_of (N + 1))
-                  change N ∈ reachability_of_loc (Heap.platform_of (N + 1)) N
-                  unfold reachability_of_loc Heap.platform_of
-                  rw [if_pos (by omega)]
-                  exact CapabilitySet.mem.here
-    · -- Capture variable C with bound .unbound
-      constructor
-      · apply CaptureSet.WfInHeap.wf_var_free
-        show (Heap.platform_of (N + 1)) N = some (.capability .basic)
-        unfold Heap.platform_of
-        simp
-      · constructor
-        · change CaptureBound.WfInHeap .unbound (Memory.platform_of (N + 1)).heap
-          exact CaptureBound.WfInHeap.wf_unbound
-        · constructor
-          · apply CapabilitySet.BoundedBy.top
-          · apply env_typing_platform_monotonic (N := N) (M := N + 1)
-            · omega
-            · exact ih
+      refine ⟨Exp.IsSimpleAns.is_var, ?_, ?_, ?_⟩
+      · exact Exp.WfInHeap.wf_var (Var.WfInHeap.wf_free hlk)
+      · simp only [CaptureSet.subst, Subst.from_TypeEnv]
+        change CaptureSet.WfInHeap (CaptureSet.var (Var.free N)) _
+        exact CaptureSet.WfInHeap.wf_var_free hlk
+      · change Ty.shape_val_denot _ Ty.cap _ _ _ _ _
+        simp only [Ty.shape_val_denot]
+        refine ⟨Exp.WfInHeap.wf_var (Var.WfInHeap.wf_free hlk), N, rfl, hlk, ?_⟩
+        change N ∈ (CaptureSet.var (Var.free N)).ground_denot (Memory.platform_of (N + 1))
+        change N ∈ reachability_of_loc (Heap.platform_of (N + 1)) N
+        unfold reachability_of_loc
+        rw [hlk]
+        exact CapabilitySet.mem.here
+    · exact CaptureSet.WfInHeap.wf_var_free hlk
+    · change CaptureBound.WfInHeap .unbound (Memory.platform_of (N + 1)).heap
+      exact CaptureBound.WfInHeap.wf_unbound
+    · exact CapabilitySet.BoundedBy.top
+    · exact env_typing_platform_monotonic (N := N) (M := N + 1) (by omega) ih
 
 /-! # Adequacy: semantic typing implies safety
 
-A configuration `(m, e)` is _safe_ under authority `A` when every configuration
-reachable from it by a reduction that uses only capabilities in `A` is
-progressive under `A`, i.e. is either an answer or can take a step that uses
-only capabilities in `A`.
+A configuration `(m, e)` is _safe_ under authority `A` when every partial run
+from it (a `Reduce` with trace `t`) ends in a progressive configuration (an
+answer, or one that can take a further step), and its trace is authorized by
+`A`: every read/write hits a capability in `A` or a cell the run itself
+allocated (`TraceOk`).
 
 Semantically well-typed expressions are safe under the authority denoted by
-their use set. Moreover, a reduction from a semantically well-typed expression
-never uses capabilities outside of that authority (`adequacy_capability`). -/
+their use set.  Semantic typing is budget-indexed: given a partial run with
+trace `t`, we instantiate it at read budget `t.readCount + 1`, so the run is
+strictly within budget and the `Safe` derivation can be consulted along it. -/
 
 def Exp.Safe (A : CapabilitySet) (m : Memory) (e : Exp {}) : Prop :=
-  ∀ C m' e',
-    Reduce C m e m' e' ->
-    C ⊆ A ->
-    IsProgressive A m' e'
+  ∀ t m' e',
+    Reduce t m e m' e' ->
+    IsProgressive m' e' ∧ TraceOk t A
 
-/-- Progressiveness is monotone in the authority. -/
-theorem IsProgressive.mono
-  (hprog : IsProgressive A m e)
+/-- Safety is monotone in the authority. -/
+theorem Exp.Safe.mono
+  (hsafe : Exp.Safe A m e)
   (hsub : A ⊆ A') :
-  IsProgressive A' m e := by
-  cases hprog with
-  | done hans => exact .done hans
-  | step hstep hsub' => exact .step hstep (CapabilitySet.subset_trans hsub' hsub)
+  Exp.Safe A' m e := by
+  intro t m' e' hred
+  obtain ⟨hprog, hok⟩ := hsafe t m' e' hred
+  exact ⟨hprog, TraceOk.mono hsub hok⟩
 
-/-- A configuration with an evaluation is safe. -/
+/-- A configuration with an evaluation at every budget is safe. -/
 theorem eval_implies_safe
-  (heval : Eval A m e Q) :
+  (heval : ∀ k, ∃ Q, Eval k A m e Q) :
   Exp.Safe A m e := by
-  intro C m' e' hred hsub
-  exact eval_implies_progressive (reduce_preserves_eval heval hred hsub)
+  intro t m' e' hred
+  obtain ⟨Q, hev⟩ := heval (t.readCount + 1)
+  exact ⟨safe_reduce_progressive hev.1 hred (by omega),
+    safe_reduce_traceok hev.1 hred (by omega)⟩
 
 /-- Adequacy of semantic typing: a semantically well-typed expression, closed by
-  any environment typed in a memory, is safe in that memory under the authority
-  denoted by its use set. -/
+  an environment typed in a memory against a family of well-typed store typings
+  (one per budget), is safe in that memory under the authority denoted by its
+  use set. -/
 theorem adequacy
   (ht : C # Γ ⊨ e : E)
-  (hts : EnvTyping Γ env m) :
+  (st : (k : Nat) -> StoreTyping k)
+  (hts : ∀ k, EnvTyping Γ env k (st k) m)
+  (hmt : ∀ k, MemTyped k (st k) m) :
   Exp.Safe (C.denot env m) m (e.subst (Subst.from_TypeEnv env)) := by
-  have heval := ht env m hts
+  apply eval_implies_safe
+  intro k
+  have heval := ht env k (st k) m (hts k)
   simp only [Ty.exi_exp_denot] at heval
-  exact eval_implies_safe heval
-
-/-- Capability adequacy: any reduction from a semantically well-typed expression
-  uses only capabilities in the authority denoted by its use set. -/
-theorem adequacy_capability
-  (ht : C # Γ ⊨ e : E)
-  (hts : EnvTyping Γ env m)
-  (hred : Reduce C' m (e.subst (Subst.from_TypeEnv env)) m' e') :
-  C' ⊆ C.denot env m := by
-  have heval := ht env m hts
-  simp only [Ty.exi_exp_denot] at heval
-  exact eval_bounds_reduce_capability heval hred
+  exact ⟨_, heval (hmt k)⟩
 
 /-- A closed ground capture set denotes the empty authority. -/
 theorem CaptureSet.ground_denot_of_closed {cs : CaptureSet {}}
@@ -244,27 +226,25 @@ theorem CaptureSet.ground_denot_of_closed {cs : CaptureSet {}}
   | cvar => rename_i x; cases x
   | var_bound => rename_i x; cases x
 
-/-- Capability sets with no members are subsets of any capability set. -/
-theorem CapabilitySet.subset_of_subset_empty {C C' : CapabilitySet}
-  (hsub : C ⊆ {}) :
-  C ⊆ C' :=
-  CapabilitySet.subset_of_mem_transfer fun _ hx =>
-    nomatch CapabilitySet.subset_preserves_mem hsub hx
+/-- A closed capture set in the empty environment denotes the empty authority. -/
+theorem CaptureSet.denot_empty_of_closed {cs : CaptureSet {}}
+  (hclosed : cs.IsClosed) (m : Memory) :
+  cs.denot .empty m ⊆ {} := by
+  unfold CaptureSet.denot
+  rw [Subst.from_TypeEnv_empty, CaptureSet.subst_id]
+  exact CaptureSet.ground_denot_of_closed hclosed _
 
 /-- Adequacy for closed expressions: a closed semantically well-typed expression
-  with a closed use set is safe in the empty memory under the empty authority. -/
+  with a closed use set is safe in the empty memory under the empty authority.
+  The empty store typing is well-typed for every memory (`MemTyped_empty`). -/
 theorem adequacy_closed {e : Exp {}}
   (ht : C # Ctx.empty ⊨ e : E)
   (hclosed : C.IsClosed) :
   Exp.Safe {} Memory.empty e := by
-  have hsafe := adequacy ht (env := .empty) (m := Memory.empty) True.intro
+  have hsafe := adequacy ht (env := .empty) (m := Memory.empty) World.empty
+    (fun _ => True.intro) (fun k => MemTyped_empty k _)
   rw [Subst.from_TypeEnv_empty, Exp.subst_id] at hsafe
-  have hdenot : C.denot .empty Memory.empty ⊆ {} := by
-    unfold CaptureSet.denot
-    rw [Subst.from_TypeEnv_empty, CaptureSet.subst_id]
-    exact CaptureSet.ground_denot_of_closed hclosed _
-  intro C' m' e' hred hsub
-  exact (hsafe C' m' e' hred (CapabilitySet.subset_of_subset_empty hsub)).mono hdenot
+  exact hsafe.mono (CaptureSet.denot_empty_of_closed hclosed _)
 
 /-- Type soundness for closed expressions: syntactic typing implies safety
   in the empty memory under the empty authority. -/
@@ -273,18 +253,21 @@ theorem soundness {e : Exp {}}
   Exp.Safe {} Memory.empty e :=
   adequacy_closed (fundamental ht) (HasType.use_set_is_closed ht)
 
+/-- Progress for closed expressions: every configuration reachable from a
+  closed well-typed expression is progressive. -/
+theorem soundness_progress {e : Exp {}}
+  (ht : C # Ctx.empty ⊢ e : T)
+  (hred : Reduce t Memory.empty e m' e') :
+  IsProgressive m' e' :=
+  (soundness ht t m' e' hred).1
+
 /-- Capability soundness for closed expressions: a closed well-typed expression
-  never uses any capability when reduced in the empty memory. -/
+  only ever accesses cells it allocated itself when reduced in the empty memory. -/
 theorem soundness_capability {e : Exp {}}
   (ht : C # Ctx.empty ⊢ e : T)
-  (hred : Reduce C' Memory.empty e m' e') :
-  C' ⊆ {} := by
-  have h := adequacy_capability (fundamental ht) (env := .empty) True.intro
-    (by rwa [Subst.from_TypeEnv_empty, Exp.subst_id])
-  refine CapabilitySet.subset_trans h ?_
-  unfold CaptureSet.denot
-  rw [Subst.from_TypeEnv_empty, CaptureSet.subst_id]
-  exact CaptureSet.ground_denot_of_closed (HasType.use_set_is_closed ht) _
+  (hred : Reduce t Memory.empty e m' e') :
+  TraceOk t {} :=
+  (soundness ht t m' e' hred).2
 
 /-! ## Safety on platforms
 
@@ -354,20 +337,15 @@ theorem BVar.level_var_bound {b : BVar (Sig.platform_of N) .var} : b.level / 2 <
   induction N with
   | zero => cases b
   | succ N ih =>
-    -- Sig.platform_of (N+1) = ((Sig.platform_of N),C),x
     cases b with
     | here =>
-      -- b.level = ((Sig.platform_of N),C).length = 2*N + 1
       unfold BVar.level Sig.size Sig.extend_cvar
       simp only [List.length]
       rw [Sig.platform_of_length]
-      -- Goal: (2 * N + 1) / 2 < N + 1, which is N < N + 1
       omega
     | there b' =>
       cases b' with
       | there b'' =>
-        -- b'': BVar (Sig.platform_of N) .var
-        -- b''.there.there.level = b''.there.level = b''.level
         simp only [BVar.level]
         have := ih (b := b'')
         omega
@@ -378,20 +356,14 @@ theorem BVar.level_cvar_bound {c : BVar (Sig.platform_of N) .cvar} : c.level / 2
   induction N with
   | zero => cases c
   | succ N ih =>
-    -- Sig.platform_of (N+1) = ((Sig.platform_of N),C),x
-    -- c must be .there c' since outermost is x (a var)
     cases c with
     | there c' =>
       cases c' with
       | here =>
-        -- c'.level = (Sig.platform_of N).length = 2*N
         simp only [BVar.level, Sig.size]
         rw [Sig.platform_of_length]
-        -- Goal: (2 * N) / 2 < N + 1, which is N < N + 1
         omega
       | there c'' =>
-        -- c'': BVar (Sig.platform_of N) .cvar
-        -- c''.there.there.level = c''.there.level = c''.level
         simp only [BVar.level]
         have := ih (c := c'')
         omega
@@ -404,22 +376,18 @@ theorem capture_set_denot_eq_platform {C : CaptureSet (Sig.platform_of N)}
   unfold CaptureSet.denot
   induction C with
   | empty =>
-    -- Empty capture set
     unfold CaptureSet.subst CaptureSet.ground_denot CaptureSet.to_platform_capability_set
     rfl
   | union cs1 cs2 ih1 ih2 =>
-    -- Union of capture sets
     cases hwf with
     | wf_union hwf1 hwf2 =>
       unfold CaptureSet.subst CaptureSet.to_platform_capability_set CaptureSet.ground_denot
       unfold CaptureSet.denot at ih1 ih2
       rw [ih1 hwf1, ih2 hwf2]
   | var x =>
-    -- Variable (term variable used as capture)
     unfold CaptureSet.subst CaptureSet.to_platform_capability_set
     cases x with
     | bound b =>
-      -- Bound term variable
       unfold Subst.from_TypeEnv Var.subst
       simp only [CaptureSet.ground_denot]
       rw [TypeEnv.lookup_var_platform]
@@ -429,14 +397,11 @@ theorem capture_set_denot_eq_platform {C : CaptureSet (Sig.platform_of N)}
       rw [reachability_of_loc_platform hlevel]
       rfl
     | free n =>
-      -- Free term variable - extract proof that n < N from hwf
       cases hwf with
       | wf_var_free hlookup =>
         unfold Subst.from_TypeEnv Var.subst
         simp only [CaptureSet.ground_denot]
         change reachability_of_loc (Heap.platform_of N) n = CapabilitySet.cap n
-        -- From hlookup: (Heap.platform_of N) n = some val
-        -- This implies n < N
         have hn : n < N := by
           unfold Heap.platform_of at hlookup
           split at hlookup
@@ -445,38 +410,27 @@ theorem capture_set_denot_eq_platform {C : CaptureSet (Sig.platform_of N)}
         rw [reachability_of_loc_platform hn]
         rfl
   | cvar c =>
-    -- Capture variable
     unfold CaptureSet.subst CaptureSet.to_platform_capability_set
     simp only [Subst.from_TypeEnv]
     rw [TypeEnv.lookup_cvar_platform]
     unfold CaptureSet.ground_denot Memory.platform_of
-    -- Goal: reachability_of_loc (Heap.platform_of N) (c.level / 2) = {c.level / 2}
     have hlevel : c.level / 2 < N := BVar.level_cvar_bound
     rw [reachability_of_loc_platform hlevel]
     rfl
 
 /-- Adequacy of semantic typing on platform contexts: a closed program typed
   in a platform context is safe on the corresponding platform memory under the
-  authority given by its (closed) use set. -/
+  authority given by its (closed) use set.  The platform holds no mutable cells,
+  so the empty store typing suffices at every budget. -/
 theorem adequacy_platform {e : Exp (Sig.platform_of N)}
   (ht : C # Ctx.platform_of N ⊨ e : E)
   (hclosed : C.IsClosed) :
   (e.subst (Subst.from_TypeEnv (TypeEnv.platform_of N))).SafeWithPlatform
     N
     (C.to_platform_capability_set) := by
-  have hsafe := adequacy ht env_typing_of_platform
+  have hsafe := adequacy ht World.empty (fun _ => env_typing_of_platform)
+    (fun k => MemTyped_empty k _)
   rwa [capture_set_denot_eq_platform (CaptureSet.wf_of_closed hclosed)] at hsafe
-
-/-- Capability adequacy on platform contexts: reductions of a closed program
-  typed in a platform context use only the capabilities in its use set. -/
-theorem adequacy_platform_capability {e : Exp (Sig.platform_of N)}
-  (ht : C # Ctx.platform_of N ⊨ e : E)
-  (hclosed : C.IsClosed)
-  (hred : Reduce C' (Memory.platform_of N)
-    (e.subst (Subst.from_TypeEnv (TypeEnv.platform_of N))) m' e') :
-  C' ⊆ C.to_platform_capability_set := by
-  have hsub := adequacy_capability ht env_typing_of_platform hred
-  rwa [capture_set_denot_eq_platform (CaptureSet.wf_of_closed hclosed)] at hsub
 
 /-- Type soundness on platform contexts: a syntactically well-typed program in a
   platform context is safe on the corresponding platform memory. -/
@@ -488,12 +442,13 @@ theorem soundness_platform {e : Exp (Sig.platform_of N)}
   adequacy_platform (fundamental ht) (HasType.use_set_is_closed ht)
 
 /-- Capability soundness on platform contexts: reductions of a syntactically
-  well-typed program in a platform context use only the capabilities in its use set. -/
+  well-typed program in a platform context only access the platform capabilities
+  in its use set, or cells the run allocated itself. -/
 theorem soundness_platform_capability {e : Exp (Sig.platform_of N)}
   (ht : C # Ctx.platform_of N ⊢ e : T)
-  (hred : Reduce C' (Memory.platform_of N)
+  (hred : Reduce t (Memory.platform_of N)
     (e.subst (Subst.from_TypeEnv (TypeEnv.platform_of N))) m' e') :
-  C' ⊆ C.to_platform_capability_set :=
-  adequacy_platform_capability (fundamental ht) (HasType.use_set_is_closed ht) hred
+  TraceOk t C.to_platform_capability_set :=
+  (soundness_platform ht t m' e' hred).2
 
 end CC
