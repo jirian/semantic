@@ -179,85 +179,122 @@ theorem env_typing_of_platform {N : Nat} :
             · omega
             · exact ih
 
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
+/-! # Adequacy: semantic typing implies safety
+
+A configuration `(m, e)` is _safe_ under authority `A` when every configuration
+reachable from it by a reduction that uses only capabilities in `A` is
+progressive under `A`, i.e. is either an answer or can take a step that uses
+only capabilities in `A`.
+
+Semantically well-typed expressions are safe under the authority denoted by
+their use set. Moreover, a reduction from a semantically well-typed expression
+never uses capabilities outside of that authority (`adequacy_capability`). -/
+
+def Exp.Safe (A : CapabilitySet) (m : Memory) (e : Exp {}) : Prop :=
+  ∀ C m' e',
+    Reduce C m e m' e' ->
+    C ⊆ A ->
+    IsProgressive A m' e'
+
+/-- Progressiveness is monotone in the authority. -/
+theorem IsProgressive.mono
+  (hprog : IsProgressive A m e)
+  (hsub : A ⊆ A') :
+  IsProgressive A' m e := by
+  cases hprog with
+  | done hans => exact .done hans
+  | step hstep hsub' => exact .step hstep (CapabilitySet.subset_trans hsub' hsub)
+
+/-- A configuration with an evaluation is safe. -/
+theorem eval_implies_safe
+  (heval : Eval A m e Q) :
+  Exp.Safe A m e := by
+  intro C m' e' hred hsub
+  exact eval_implies_progressive (reduce_preserves_eval heval hred hsub)
+
+/-- Adequacy of semantic typing: a semantically well-typed expression, closed by
+  any environment typed in a memory, is safe in that memory under the authority
+  denoted by its use set. -/
+theorem adequacy
+  (ht : C # Γ ⊨ e : E)
+  (hts : EnvTyping Γ env m) :
+  Exp.Safe (C.denot env m) m (e.subst (Subst.from_TypeEnv env)) := by
+  have heval := ht env m hts
+  simp only [Ty.exi_exp_denot] at heval
+  exact eval_implies_safe heval
+
+/-- Capability adequacy: any reduction from a semantically well-typed expression
+  uses only capabilities in the authority denoted by its use set. -/
+theorem adequacy_capability
+  (ht : C # Γ ⊨ e : E)
+  (hts : EnvTyping Γ env m)
+  (hred : Reduce C' m (e.subst (Subst.from_TypeEnv env)) m' e') :
+  C' ⊆ C.denot env m := by
+  have heval := ht env m hts
+  simp only [Ty.exi_exp_denot] at heval
+  exact eval_bounds_reduce_capability heval hred
+
+/-- A closed ground capture set denotes the empty authority. -/
+theorem CaptureSet.ground_denot_of_closed {cs : CaptureSet {}}
+  (hclosed : cs.IsClosed) (m : Memory) :
+  cs.ground_denot m ⊆ {} := by
+  induction hclosed with
+  | empty => exact CapabilitySet.subset_refl
+  | union _ _ ih1 ih2 => exact CapabilitySet.union_subset_of_subset_of_subset ih1 ih2
+  | cvar => rename_i x; cases x
+  | var_bound => rename_i x; cases x
+
+/-- Capability sets with no members are subsets of any capability set. -/
+theorem CapabilitySet.subset_of_subset_empty {C C' : CapabilitySet}
+  (hsub : C ⊆ {}) :
+  C ⊆ C' :=
+  CapabilitySet.subset_of_mem_transfer fun _ hx =>
+    nomatch CapabilitySet.subset_preserves_mem hsub hx
+
+/-- Adequacy for closed expressions: a closed semantically well-typed expression
+  with a closed use set is safe in the empty memory under the empty authority. -/
+theorem adequacy_closed {e : Exp {}}
+  (ht : C # Ctx.empty ⊨ e : E)
+  (hclosed : C.IsClosed) :
+  Exp.Safe {} Memory.empty e := by
+  have hsafe := adequacy ht (env := .empty) (m := Memory.empty) True.intro
+  rw [Subst.from_TypeEnv_empty, Exp.subst_id] at hsafe
+  have hdenot : C.denot .empty Memory.empty ⊆ {} := by
+    unfold CaptureSet.denot
+    rw [Subst.from_TypeEnv_empty, CaptureSet.subst_id]
+    exact CaptureSet.ground_denot_of_closed hclosed _
+  intro C' m' e' hred hsub
+  exact (hsafe C' m' e' hred (CapabilitySet.subset_of_subset_empty hsub)).mono hdenot
+
+/-- Type soundness for closed expressions: syntactic typing implies safety
+  in the empty memory under the empty authority. -/
+theorem soundness {e : Exp {}}
+  (ht : C # Ctx.empty ⊢ e : T) :
+  Exp.Safe {} Memory.empty e :=
+  adequacy_closed (fundamental ht) (HasType.use_set_is_closed ht)
+
+/-- Capability soundness for closed expressions: a closed well-typed expression
+  never uses any capability when reduced in the empty memory. -/
+theorem soundness_capability {e : Exp {}}
+  (ht : C # Ctx.empty ⊢ e : T)
+  (hred : Reduce C' Memory.empty e m' e') :
+  C' ⊆ {} := by
+  have h := adequacy_capability (fundamental ht) (env := .empty) True.intro
+    (by rwa [Subst.from_TypeEnv_empty, Exp.subst_id])
+  refine CapabilitySet.subset_trans h ?_
+  unfold CaptureSet.denot
+  rw [Subst.from_TypeEnv_empty, CaptureSet.subst_id]
+  exact CaptureSet.ground_denot_of_closed (HasType.use_set_is_closed ht) _
+
+/-! ## Safety on platforms
+
+A _platform_ provides `N` ground capabilities. Closed programs typed in a
+platform context are safe when run on the corresponding platform memory. -/
+
+/-- An expression is safe with platform `N` under authority `P` when it is
+  safe in the platform memory with `N` ground capabilities. -/
 def Exp.SafeWithPlatform (e : Exp {}) (N : Nat) (P : CapabilitySet) : Prop :=
-  ∀ M1 e1,
-    Reduce P (Memory.platform_of N) e M1 e1 ->
-    IsProgressive P M1 e1
+  Exp.Safe P (Memory.platform_of N) e
 
 /-- Reachability of a location in platform heap is just the singleton set. -/
 theorem reachability_of_loc_platform {l : Nat} (hl : l < N) :
@@ -294,40 +331,6 @@ theorem TypeEnv.lookup_var_platform {x : BVar (Sig.platform_of N) .var} :
         change (TypeEnv.platform_of N).lookup_var x'' = x''.level / 2
         exact ih
 
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
 theorem TypeEnv.lookup_cvar_platform {c : BVar (Sig.platform_of N) .cvar} :
   (TypeEnv.platform_of N).lookup_cvar c = .var (.free (c.level / 2)) := by
   induction N with
@@ -346,48 +349,6 @@ theorem TypeEnv.lookup_cvar_platform {c : BVar (Sig.platform_of N) .cvar} :
         change (TypeEnv.platform_of N).lookup_cvar c'' =
           CaptureSet.var (Var.free (c''.level / 2))
         exact ih
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
 
 theorem BVar.level_var_bound {b : BVar (Sig.platform_of N) .var} : b.level / 2 < N := by
   induction N with
@@ -494,31 +455,45 @@ theorem capture_set_denot_eq_platform {C : CaptureSet (Sig.platform_of N)}
     rw [reachability_of_loc_platform hlevel]
     rfl
 
-/-- Adequacy of semantic typing on platform contexts.
-    Requires that the capture set is closed (contains no free variables). -/
+/-- Adequacy of semantic typing on platform contexts: a closed program typed
+  in a platform context is safe on the corresponding platform memory under the
+  authority given by its (closed) use set. -/
 theorem adequacy_platform {e : Exp (Sig.platform_of N)}
-  (ht : SemanticTyping C (Ctx.platform_of N) e E)
+  (ht : C # Ctx.platform_of N ⊨ e : E)
   (hclosed : C.IsClosed) :
   (e.subst (Subst.from_TypeEnv (TypeEnv.platform_of N))).SafeWithPlatform
     N
     (C.to_platform_capability_set) := by
-  unfold Exp.SafeWithPlatform
-  intro M1 e1 hred
-  -- Apply semantic typing with platform environment
-  have hdenot := ht (TypeEnv.platform_of N) (Memory.platform_of N) env_typing_of_platform
-  -- Derive well-formedness from closedness
-  have hwf : C.WfInHeap (Heap.platform_of N) := CaptureSet.wf_of_closed hclosed
-  -- Rewrite using the equality of capability sets
-  rw [capture_set_denot_eq_platform hwf] at hdenot
-  -- Preservation: Eval is preserved under reduction
-  have heval' : Eval C.to_platform_capability_set M1 e1
-      (Ty.exi_val_denot (TypeEnv.platform_of N) E).as_mpost := by
-    have hdenot : Ty.exi_exp_denot (TypeEnv.platform_of N) E
-      C.to_platform_capability_set (Memory.platform_of N)
-      (e.subst (Subst.from_TypeEnv (TypeEnv.platform_of N))) := hdenot
-    unfold Ty.exi_exp_denot at hdenot
-    apply reduce_preserves_eval hdenot hred CapabilitySet.subset_refl
-  -- Progressive: Eval implies progressive
-  exact eval_implies_progressive heval'
+  have hsafe := adequacy ht env_typing_of_platform
+  rwa [capture_set_denot_eq_platform (CaptureSet.wf_of_closed hclosed)] at hsafe
+
+/-- Capability adequacy on platform contexts: reductions of a closed program
+  typed in a platform context use only the capabilities in its use set. -/
+theorem adequacy_platform_capability {e : Exp (Sig.platform_of N)}
+  (ht : C # Ctx.platform_of N ⊨ e : E)
+  (hclosed : C.IsClosed)
+  (hred : Reduce C' (Memory.platform_of N)
+    (e.subst (Subst.from_TypeEnv (TypeEnv.platform_of N))) m' e') :
+  C' ⊆ C.to_platform_capability_set := by
+  have hsub := adequacy_capability ht env_typing_of_platform hred
+  rwa [capture_set_denot_eq_platform (CaptureSet.wf_of_closed hclosed)] at hsub
+
+/-- Type soundness on platform contexts: a syntactically well-typed program in a
+  platform context is safe on the corresponding platform memory. -/
+theorem soundness_platform {e : Exp (Sig.platform_of N)}
+  (ht : C # Ctx.platform_of N ⊢ e : T) :
+  (e.subst (Subst.from_TypeEnv (TypeEnv.platform_of N))).SafeWithPlatform
+    N
+    (C.to_platform_capability_set) :=
+  adequacy_platform (fundamental ht) (HasType.use_set_is_closed ht)
+
+/-- Capability soundness on platform contexts: reductions of a syntactically
+  well-typed program in a platform context use only the capabilities in its use set. -/
+theorem soundness_platform_capability {e : Exp (Sig.platform_of N)}
+  (ht : C # Ctx.platform_of N ⊢ e : T)
+  (hred : Reduce C' (Memory.platform_of N)
+    (e.subst (Subst.from_TypeEnv (TypeEnv.platform_of N))) m' e') :
+  C' ⊆ C.to_platform_capability_set :=
+  adequacy_platform_capability (fundamental ht) (HasType.use_set_is_closed ht) hred
 
 end CC

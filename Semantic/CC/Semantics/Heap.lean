@@ -173,7 +173,7 @@ theorem union_assoc_equiv : ((C1 ∪ C2) ∪ C3) ≈ (C1 ∪ (C2 ∪ C3)) := by
 
 /-- Helper: If all elements of C1 are in C2, and C2 ⊆ C, then C1 ⊆ C2.
     This is proven by structural induction on C1. -/
-private theorem subset_of_mem_transfer {C1 C2 : CapabilitySet}
+theorem subset_of_mem_transfer {C1 C2 : CapabilitySet}
   (hmem : ∀ x, x ∈ C1 → x ∈ C2) :
   C1 ⊆ C2 := by
   induction C1 with
