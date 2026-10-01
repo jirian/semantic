@@ -261,6 +261,8 @@ theorem TypeEnv.HasPeak.ty_captureSet_subst {T : Ty .capt s1} {σ : Subst s1 s2}
   | cap cs => exact Iff.rfl
   | cell cs => exact Iff.rfl
   | reader cs => exact Iff.rfl
+  | arr cs => exact Iff.rfl
+  | pair cs => exact Iff.rfl
 
 structure Retype (env1 : TypeEnv s1) (σ : Subst s1 s2) (env2 : TypeEnv s2) (D : PeakSet s1) where
   var :
@@ -618,7 +620,7 @@ def retype_val_denot
     simp only [Ty.val_denot, Ty.subst]
     rw [← retype_resolved_capture_set ρ]
     rw [← retype_captureset_denot ρ cs]
-  | .cell cs Tc | .reader cs Tc => by
+  | .cell cs Tc | .reader cs Tc | .arr cs Tc => by
     have ih := retype_val_denot ρ Tc
     have heq : Ty.val_denot env1 Tc = Ty.val_denot env2 (Tc.subst σ) := by
       funext k st m e; exact propext (ih k st m e)
@@ -627,6 +629,18 @@ def retype_val_denot
     rw [← retype_resolved_capture_set ρ]
     rw [← retype_captureset_denot ρ cs]
     rw [heq]
+  | .pair cs T1 T2 => by
+    have ih1 := retype_val_denot ρ T1
+    have ih2 := retype_val_denot ρ T2
+    have heq1 : Ty.val_denot env1 T1 = Ty.val_denot env2 (T1.subst σ) := by
+      funext k st m e; exact propext (ih1 k st m e)
+    have heq2 : Ty.val_denot env1 T2 = Ty.val_denot env2 (T2.subst σ) := by
+      funext k st m e; exact propext (ih2 k st m e)
+    intro k st m e
+    simp only [Ty.val_denot, Ty.subst]
+    rw [← retype_resolved_capture_set ρ]
+    rw [← retype_captureset_denot ρ cs]
+    rw [heq1, heq2]
   | .arrow T1 cs T2 => by
     have ih1 := retype_val_denot ρ T1
     intro k st m e
