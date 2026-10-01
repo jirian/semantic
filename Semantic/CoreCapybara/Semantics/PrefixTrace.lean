@@ -307,6 +307,70 @@ theorem PrefixSafe.unwrap {k : Nat} {m : Memory} {x : Nat} {cs Ψ e hv R0}
       obtain ⟨htok, hg⟩ := hrec rest (by simpa using hbud)
       exact ⟨by simpa using htok, GSeqReduce.step (GSeqStep.step_unwrap hlk) hg⟩
 
+/-- `split`: reduces silently to the derived allocation-and-pack expression. -/
+theorem PrefixSafe.split {k : Nat} {m : Memory} {x : Nat} {ls : List Nat} {n : Nat}
+    {R0 : CapabilitySet} {R : CapabilitySet}
+    (hlk : m.lookup x = some (.val ⟨.arr (ls.map Var.free), .arr, R0⟩))
+    (hrec : PrefixSafe k m (Exp.splitExp ls n) R) :
+    PrefixSafe k m (.split (.free x) n) R := by
+  intro t m' e' hred hbud
+  cases hred with
+  | refl => exact ⟨TraceOk.nil, GSeqReduce.refl⟩
+  | step h rest =>
+    cases h with
+    | step_split hlk2 =>
+      obtain rfl := Memory.lookup_arr_eq hlk hlk2
+      obtain ⟨htok, hg⟩ := hrec rest (by simpa using hbud)
+      exact ⟨by simpa using htok, GSeqReduce.step (GSeqStep.step_split hlk) hg⟩
+
+/-- `idx`: a silent lookup answering a variable. -/
+theorem PrefixSafe.idx {k : Nat} {m : Memory} {x d : Nat} {n : Nat} {R : CapabilitySet} :
+    PrefixSafe k m (.idx (.free x) n (.free d)) R := by
+  intro t m' e' hred _
+  cases hred with
+  | refl => exact ⟨TraceOk.nil, GSeqReduce.refl⟩
+  | step h rest =>
+    cases h with
+    | step_idx hlk2 hd2 =>
+      obtain ⟨rfl, rfl, rfl⟩ := seqreduce_ans_eq Exp.IsAns.is_var rest
+      exact ⟨TraceOk.nil, GSeqReduce.step (GSeqStep.step_idx hlk2 hd2) GSeqReduce.refl⟩
+
+/-- `concat`: a silent lookup answering an array value. -/
+theorem PrefixSafe.concat {k : Nat} {m : Memory} {x y : Nat} {R : CapabilitySet} :
+    PrefixSafe k m (.concat (.free x) (.free y)) R := by
+  intro t m' e' hred _
+  cases hred with
+  | refl => exact ⟨TraceOk.nil, GSeqReduce.refl⟩
+  | step h rest =>
+    cases h with
+    | step_concat hx2 hy2 =>
+      obtain ⟨rfl, rfl, rfl⟩ := seqreduce_ans_eq (Exp.IsAns.is_val Exp.IsVal.arr) rest
+      exact ⟨TraceOk.nil, GSeqReduce.step (GSeqStep.step_concat hx2 hy2) GSeqReduce.refl⟩
+
+/-- `fst`: a silent projection answering a variable. -/
+theorem PrefixSafe.fst {k : Nat} {m : Memory} {p : Nat} {R : CapabilitySet} :
+    PrefixSafe k m (.fst (.free p)) R := by
+  intro t m' e' hred _
+  cases hred with
+  | refl => exact ⟨TraceOk.nil, GSeqReduce.refl⟩
+  | step h rest =>
+    cases h with
+    | step_fst hlk2 =>
+      obtain ⟨rfl, rfl, rfl⟩ := seqreduce_ans_eq Exp.IsAns.is_var rest
+      exact ⟨TraceOk.nil, GSeqReduce.step (GSeqStep.step_fst hlk2) GSeqReduce.refl⟩
+
+/-- `snd`: a silent projection answering a variable. -/
+theorem PrefixSafe.snd {k : Nat} {m : Memory} {p : Nat} {R : CapabilitySet} :
+    PrefixSafe k m (.snd (.free p)) R := by
+  intro t m' e' hred _
+  cases hred with
+  | refl => exact ⟨TraceOk.nil, GSeqReduce.refl⟩
+  | step h rest =>
+    cases h with
+    | step_snd hlk2 =>
+      obtain ⟨rfl, rfl, rfl⟩ := seqreduce_ans_eq Exp.IsAns.is_var rest
+      exact ⟨TraceOk.nil, GSeqReduce.step (GSeqStep.step_snd hlk2) GSeqReduce.refl⟩
+
 /-- `cond`: reduces to one branch (resolved from the scrutinee); emits `[]`. -/
 theorem PrefixSafe.cond {k : Nat} {m : Memory} {x : Var .var {}} {e2 e3 : Exp {}}
     {R : CapabilitySet}

@@ -6710,22 +6710,122 @@ theorem Ctx.extendCVars_isClosed {s : Sig} {Γ : Ctx s} {a : Authority} :
 
 /-! ## Arrays, owned split and pairs -/
 
+theorem resolve_var_pair_lookup {m : Memory} {p x y : Nat}
+    (h : resolve m.heap (.var (.free p)) = some (.pair (.free x) (.free y))) :
+    ∃ R, m.lookup p = some (.val ⟨.pair (.free x) (.free y), .pair, R⟩) := by
+  simp only [resolve] at h
+  split at h
+  · rename_i v hv
+    obtain ⟨u, hu, R⟩ := v
+    simp only [Option.some.injEq] at h
+    subst h
+    exact ⟨R, hv⟩
+  · cases h
+
+theorem resolve_var_arr_lookup {m : Memory} {p : Nat} {ls : List Nat}
+    (h : resolve m.heap (.var (.free p)) = some (.arr (ls.map Var.free))) :
+    ∃ R, m.lookup p = some (.val ⟨.arr (ls.map Var.free), .arr, R⟩) := by
+  simp only [resolve] at h
+  split at h
+  · rename_i v hv
+    obtain ⟨u, hu, R⟩ := v
+    simp only [Option.some.injEq] at h
+    subst h
+    exact ⟨R, hv⟩
+  · cases h
+
 theorem sem_typ_pair {x y : BVar s .var} {T1 T2 : Ty .capt s}
+  (hT1 : T1.IsClosed) (hT2 : T2.IsClosed)
   (hx : SemanticTyping {} Γ (Exp.var (.bound x)) (.typ T1))
   (hy : SemanticTyping {} Γ (Exp.var (.bound y)) (.typ T2)) :
   SemanticTyping {} Γ (Exp.pair (.bound x) (.bound y))
     (.typ (.pair (T1.captureSet ∪ T2.captureSet) T1 T2)) := by
-  sorry
+  intro env k st store hts hdsep _
+  simp only [Ty.exi_exp_denot, Exp.subst, Subst.from_TypeEnv, Var.subst, List.empty_eq]
+  intro hmt
+  rcases Nat.eq_zero_or_pos k with rfl | hkpos
+  · exact ⟨Eval.exhausted, prefixSafe_zero⟩
+  -- sequential world threading: `x` at `st`, then `y` at `x`'s post-world
+  have h1 := semtyp_to_exi_exp_denot hx hts hdsep (Memory.is_compatible_empty store)
+  obtain ⟨st1, hwle1, hmt1, ha⟩ := var_exp_denot_inv hkpos hmt h1
+  have hts1 : EnvTyping Γ env k st1 store := env_typing_worldle_down hts hwle1
+  have h2 := semtyp_to_exi_exp_denot hy hts1 hdsep (Memory.is_compatible_empty store)
+  obtain ⟨st2, hwle2, hmt2, hb⟩ := var_exp_denot_inv hkpos hmt1 h2
+  have hts2 : EnvTyping Γ env k st2 store := env_typing_worldle_down hts1 hwle2
+  simp only [Ty.exi_val_denot] at ha hb
+  have ha2 := val_denot_worldle_monotonic (typed_env_is_monotonic hts) T1 hwle2 ha
+  set px := (env.lookup_var x).1
+  set py := (env.lookup_var y).1
+  have hwfx := val_denot_implies_wf (typed_env_is_implying_wf hts) T1 k st2 store _ ha2
+  have hwfy := val_denot_implies_wf (typed_env_is_implying_wf hts) T2 k st2 store _ hb
+  have hcx := val_denot_enforces_captures hts2 _ ha2
+  have hcy := val_denot_enforces_captures hts2 _ hb
+  refine ⟨Eval.eval_val Exp.IsSimpleVal.pair ?_,
+    PrefixSafe.ans (Exp.IsAns.is_val Exp.IsVal.pair)⟩
+  intro _hguard
+  refine ⟨TraceOk.nil, st2, WorldLe.trans (WorldLe.refl_trunc_self _ st store)
+      (WorldLe.trans hwle1 hwle2), hmt2, ?_,
+    pack_bound_of_ne_pack (fun _ _ _ h => nomatch h),
+    witness_live_of_ne_pack (fun _ _ _ h => nomatch h)⟩
+  simp only [Ty.exi_val_denot, Trace.readCount_nil, Nat.sub_zero, Ty.val_denot]
+  cases hwfx with | wf_var hvx =>
+  cases hwfy with | wf_var hvy =>
+  refine ⟨Exp.WfInHeap.wf_pair hvx hvy, ?_, px, py, rfl, ?_, ha2, hb⟩
+  · exact CaptureSet.wf_subst
+      (CaptureSet.wf_of_closed (CaptureSet.IsClosed.union
+        (Ty.captureSet_isClosed hT1) (Ty.captureSet_isClosed hT2)))
+      (from_TypeEnv_wf_in_heap hts)
+  · simp only [resolve_reachability] at hcx hcy
+    simp only [CaptureSet.ofVars, expand_captures, CapabilitySet.applyAccess_M,
+      CapabilitySet.applyMut]
+    have hden : (T1.captureSet ∪ T2.captureSet).denot env store
+        = T1.captureSet.denot env store ∪ T2.captureSet.denot env store := rfl
+    rw [hden]
+    exact CapabilitySet.Subset.union_left
+      (CapabilitySet.Subset.trans hcx CapabilitySet.Subset.union_right_left)
+      (CapabilitySet.Subset.union_left
+        (CapabilitySet.Subset.trans hcy CapabilitySet.Subset.union_right_right)
+        CapabilitySet.Subset.empty)
 
 theorem sem_typ_fst {x : BVar s .var} {C : CaptureSet s} {T1 T2 : Ty .capt s}
   (hx : SemanticTyping {} Γ (Exp.var (.bound x)) (.typ (.pair C T1 T2))) :
   SemanticTyping {} Γ (Exp.fst (.bound x)) (.typ T1) := by
-  sorry
+  intro env k st store hts hdsep _
+  simp only [Ty.exi_exp_denot, Exp.subst, Subst.from_TypeEnv, Var.subst, List.empty_eq]
+  intro hmt
+  rcases Nat.eq_zero_or_pos k with rfl | hkpos
+  · exact ⟨Eval.exhausted, prefixSafe_zero⟩
+  have h1 := semtyp_to_exi_exp_denot hx hts hdsep (Memory.is_compatible_empty store)
+  obtain ⟨st1, hwle1, hmt1, hval1⟩ := var_exp_denot_inv hkpos hmt h1
+  simp only [Ty.exi_val_denot, Ty.val_denot] at hval1
+  obtain ⟨_, _, a, b, hres, _, ha, _⟩ := hval1
+  obtain ⟨R, hlk⟩ := resolve_var_pair_lookup hres
+  refine ⟨Eval.eval_fst hlk ?_, PrefixSafe.fst⟩
+  intro _hguard
+  exact ⟨TraceOk.nil, st1, WorldLe.trans (WorldLe.refl_trunc_self _ st store) hwle1, hmt1,
+    (by simp only [Ty.exi_val_denot, Trace.readCount_nil, Nat.sub_zero]; exact ha),
+    pack_bound_of_ne_pack (fun _ _ _ h => nomatch h),
+    witness_live_of_ne_pack (fun _ _ _ h => nomatch h)⟩
 
 theorem sem_typ_snd {x : BVar s .var} {C : CaptureSet s} {T1 T2 : Ty .capt s}
   (hx : SemanticTyping {} Γ (Exp.var (.bound x)) (.typ (.pair C T1 T2))) :
   SemanticTyping {} Γ (Exp.snd (.bound x)) (.typ T2) := by
-  sorry
+  intro env k st store hts hdsep _
+  simp only [Ty.exi_exp_denot, Exp.subst, Subst.from_TypeEnv, Var.subst, List.empty_eq]
+  intro hmt
+  rcases Nat.eq_zero_or_pos k with rfl | hkpos
+  · exact ⟨Eval.exhausted, prefixSafe_zero⟩
+  have h1 := semtyp_to_exi_exp_denot hx hts hdsep (Memory.is_compatible_empty store)
+  obtain ⟨st1, hwle1, hmt1, hval1⟩ := var_exp_denot_inv hkpos hmt h1
+  simp only [Ty.exi_val_denot, Ty.val_denot] at hval1
+  obtain ⟨_, _, a, b, hres, _, _, hb⟩ := hval1
+  obtain ⟨R, hlk⟩ := resolve_var_pair_lookup hres
+  refine ⟨Eval.eval_snd hlk ?_, PrefixSafe.snd⟩
+  intro _hguard
+  exact ⟨TraceOk.nil, st1, WorldLe.trans (WorldLe.refl_trunc_self _ st store) hwle1, hmt1,
+    (by simp only [Ty.exi_val_denot, Trace.readCount_nil, Nat.sub_zero]; exact hb),
+    pack_bound_of_ne_pack (fun _ _ _ h => nomatch h),
+    witness_live_of_ne_pack (fun _ _ _ h => nomatch h)⟩
 
 theorem sem_typ_arr {xs : List (BVar s .var)} {T : Ty .capt s} {Cs : Var .var s → CaptureSet s}
   (hT : T.IsClosed)
@@ -6916,7 +7016,11 @@ theorem fundamental
     cases hclosed_e with
     | pair hx_closed hy_closed =>
       cases hx_closed; cases hy_closed
-      exact sem_typ_pair (hx_ih hΓ (Exp.IsClosed.var Var.IsClosed.bound))
+      have hT1 := HasType.type_is_closed hx_syn
+      have hT2 := HasType.type_is_closed hy_syn
+      cases hT1 with | typ hT1 =>
+      cases hT2 with | typ hT2 =>
+      exact sem_typ_pair hT1 hT2 (hx_ih hΓ (Exp.IsClosed.var Var.IsClosed.bound))
         (hy_ih hΓ (Exp.IsClosed.var Var.IsClosed.bound))
   case fst =>
     rename_i hx_syn hx_ih

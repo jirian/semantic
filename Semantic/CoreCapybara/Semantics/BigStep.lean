@@ -3591,6 +3591,78 @@ theorem Eval.eval_val {m : Memory} {v : Exp {}} {Q : Tpost}
   obtain ⟨rfl, rfl, rfl⟩ := BigStep.simpleVal_eq hv hbs
   exact hQ
 
+theorem Eval.eval_split {m : Memory} {x : Nat} {ls : List Nat} {n : Nat} {R : CapabilitySet}
+    {Q : Tpost}
+    (hlk : m.lookup x = some (.val ⟨.arr (ls.map Var.free), .arr, R⟩))
+    (hrec : Eval k m (Exp.splitExp ls n) Q) :
+    Eval k m (.split (.free x) n) Q := by
+  refine ⟨Safe.split hlk hrec.1, ?_⟩
+  intro t v m' hbs
+  cases hbs with
+  | bs_split hlk2 hbody =>
+    obtain rfl := Memory.lookup_arr_eq hlk hlk2
+    exact hrec.2 _ _ _ hbody
+  | bs_val hv => cases hv
+
+theorem Eval.eval_idx {m : Memory} {x d : Nat} {ls : List Nat} {n : Nat} {R : CapabilitySet}
+    {Q : Tpost}
+    (hlk : m.lookup x = some (.val ⟨.arr (ls.map Var.free), .arr, R⟩))
+    (hd : m.heap d ≠ none)
+    (hQ : Q [] (.var (.free (ls.getD n d))) m) :
+    Eval k m (.idx (.free x) n (.free d)) Q := by
+  refine ⟨Safe.idx hlk hd, ?_⟩
+  intro t v m' hbs
+  cases hbs with
+  | bs_idx hlk2 _ =>
+    obtain rfl := Memory.lookup_arr_eq hlk hlk2
+    exact hQ
+  | bs_val hv => cases hv
+
+theorem Eval.eval_concat {m : Memory} {x y : Nat} {ls1 ls2 : List Nat} {R1 R2 : CapabilitySet}
+    {Q : Tpost}
+    (hx : m.lookup x = some (.val ⟨.arr (ls1.map Var.free), .arr, R1⟩))
+    (hy : m.lookup y = some (.val ⟨.arr (ls2.map Var.free), .arr, R2⟩))
+    (hQ : Q [] (.arr ((ls1 ++ ls2).map Var.free)) m) :
+    Eval k m (.concat (.free x) (.free y)) Q := by
+  refine ⟨Safe.concat hx hy, ?_⟩
+  intro t v m' hbs
+  cases hbs with
+  | bs_concat hx2 hy2 =>
+    obtain rfl := Memory.lookup_arr_eq hx hx2
+    obtain rfl := Memory.lookup_arr_eq hy hy2
+    exact hQ
+  | bs_val hv => cases hv
+
+theorem Eval.eval_fst {m : Memory} {p x y : Nat} {R : CapabilitySet} {Q : Tpost}
+    (hlk : m.lookup p = some (.val ⟨.pair (.free x) (.free y), .pair, R⟩))
+    (hQ : Q [] (.var (.free x)) m) :
+    Eval k m (.fst (.free p)) Q := by
+  refine ⟨Safe.fst hlk, ?_⟩
+  intro t v m' hbs
+  cases hbs with
+  | bs_fst hlk2 =>
+    have h := hlk.symm.trans hlk2
+    simp only [Option.some.injEq, Cell.val.injEq, HeapVal.mk.injEq, Exp.pair.injEq,
+      Var.free.injEq] at h
+    obtain ⟨⟨rfl, rfl⟩, rfl⟩ := h
+    exact hQ
+  | bs_val hv => cases hv
+
+theorem Eval.eval_snd {m : Memory} {p x y : Nat} {R : CapabilitySet} {Q : Tpost}
+    (hlk : m.lookup p = some (.val ⟨.pair (.free x) (.free y), .pair, R⟩))
+    (hQ : Q [] (.var (.free y)) m) :
+    Eval k m (.snd (.free p)) Q := by
+  refine ⟨Safe.snd hlk, ?_⟩
+  intro t v m' hbs
+  cases hbs with
+  | bs_snd hlk2 =>
+    have h := hlk.symm.trans hlk2
+    simp only [Option.some.injEq, Cell.val.injEq, HeapVal.mk.injEq, Exp.pair.injEq,
+      Var.free.injEq] at h
+    obtain ⟨⟨rfl, rfl⟩, rfl⟩ := h
+    exact hQ
+  | bs_val hv => cases hv
+
 theorem Eval.eval_read {m : Memory} {x y n : Nat} {hv R} {Q : Tpost}
     (hlkx : m.lookup x = some (.val ⟨.reader (.free y), hv, R⟩))
     (hlky : m.lookup y = some (.capability (.mcell n .live)))
