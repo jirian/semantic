@@ -124,6 +124,24 @@ inductive BigStep : Memory -> Exp {} -> Trace -> Exp {} -> Memory -> Prop where
   m.lookup x = some (.val ⟨.boxed cs Ψ e, hv, R⟩) ->
   BigStep m e t v m' ->
   BigStep m (.unwrap (.free x)) t v m'
+| bs_idx {m : Memory} {x d : Nat} {ls : List Nat} {n : Nat} :
+  m.lookup x = some (.val ⟨.arr (ls.map Var.free), .arr, R⟩) ->
+  m.heap d ≠ none ->
+  BigStep m (.idx (.free x) n (.free d)) [] (.var (.free (ls.getD n d))) m
+| bs_concat {m : Memory} {x y : Nat} {ls1 ls2 : List Nat} :
+  m.lookup x = some (.val ⟨.arr (ls1.map Var.free), .arr, R1⟩) ->
+  m.lookup y = some (.val ⟨.arr (ls2.map Var.free), .arr, R2⟩) ->
+  BigStep m (.concat (.free x) (.free y)) [] (.arr ((ls1 ++ ls2).map .free)) m
+| bs_split {m : Memory} {x : Nat} {ls : List Nat} {n : Nat} :
+  m.lookup x = some (.val ⟨.arr (ls.map Var.free), .arr, R⟩) ->
+  BigStep m (Exp.splitExp ls n) t v m' ->
+  BigStep m (.split (.free x) n) t v m'
+| bs_fst {m : Memory} {p x y : Nat} :
+  m.lookup p = some (.val ⟨.pair (.free x) (.free y), .pair, R⟩) ->
+  BigStep m (.fst (.free p)) [] (.var (.free x)) m
+| bs_snd {m : Memory} {p x y : Nat} :
+  m.lookup p = some (.val ⟨.pair (.free x) (.free y), .pair, R⟩) ->
+  BigStep m (.snd (.free p)) [] (.var (.free y)) m
 | bs_letin_val {m m1 m2 : Memory} {v : Exp {}} {l' : Nat} :
   BigStep m e1 t1 v m1 ->
   (hv : Exp.IsSimpleVal v) ->
@@ -310,6 +328,24 @@ inductive Safe : Nat -> Memory -> Exp {} -> Prop where
   m.lookup x = some (.val ⟨.boxed cs Ψ e, hv, R⟩) ->
   Safe k m e ->
   Safe k m (.unwrap (.free x))
+| idx {k : Nat} {m : Memory} {x d : Nat} {ls : List Nat} {n : Nat} :
+  m.lookup x = some (.val ⟨.arr (ls.map Var.free), .arr, R⟩) ->
+  m.heap d ≠ none ->
+  Safe k m (.idx (.free x) n (.free d))
+| concat {k : Nat} {m : Memory} {x y : Nat} {ls1 ls2 : List Nat} :
+  m.lookup x = some (.val ⟨.arr (ls1.map Var.free), .arr, R1⟩) ->
+  m.lookup y = some (.val ⟨.arr (ls2.map Var.free), .arr, R2⟩) ->
+  Safe k m (.concat (.free x) (.free y))
+| split {k : Nat} {m : Memory} {x : Nat} {ls : List Nat} {n : Nat} :
+  m.lookup x = some (.val ⟨.arr (ls.map Var.free), .arr, R⟩) ->
+  Safe k m (Exp.splitExp ls n) ->
+  Safe k m (.split (.free x) n)
+| fst {k : Nat} {m : Memory} {p x y : Nat} :
+  m.lookup p = some (.val ⟨.pair (.free x) (.free y), .pair, R⟩) ->
+  Safe k m (.fst (.free p))
+| snd {k : Nat} {m : Memory} {p x y : Nat} :
+  m.lookup p = some (.val ⟨.pair (.free x) (.free y), .pair, R⟩) ->
+  Safe k m (.snd (.free p))
 | letin {k : Nat} {m : Memory} :
   Safe k m e1 ->
   -- answer-shape of the head is guaranteed only for runs WITHIN budget: a binding
@@ -412,6 +448,55 @@ inductive Safe : Nat -> Memory -> Exp {} -> Prop where
 def Eval (k : Nat) (m : Memory) (e : Exp {}) (Q : Tpost) : Prop :=
   Safe k m e ∧ (∀ t v m', BigStep m e t v m' -> Q t v m')
 
+/-! ### Arrays and pairs: well-formedness helpers -/
+
+theorem List.getD_mem_or_eq {α : Type} (ls : List α) (n : Nat) (d : α) :
+    ls.getD n d ∈ ls ∨ ls.getD n d = d := by
+  rw [List.getD_eq_getElem?_getD]
+  cases h : ls[n]? with
+  | none => right; rfl
+  | some a => left; exact List.mem_of_getElem? h
+
+theorem Var.wf_free_of_ne_none {H : Heap} {l : Nat} (h : H l ≠ none) :
+    Var.WfInHeap (.free l : Var .var s) H := by
+  obtain ⟨c, hc⟩ := Option.ne_none_iff_exists'.mp h
+  exact .wf_free hc
+
+theorem Exp.wf_arr_inv {ls : List Nat} {H : Heap}
+    (h : Exp.WfInHeap (.arr (ls.map Var.free) : Exp s) H) : ∀ l ∈ ls, H l ≠ none := by
+  cases h with
+  | wf_arr hxs =>
+    intro l hl
+    cases hxs _ (List.mem_map_of_mem hl) with
+    | wf_free hx => rw [hx]; exact Option.some_ne_none _
+
+theorem Exp.wf_arr_of {ls : List Nat} {H : Heap} (h : ∀ l ∈ ls, H l ≠ none) :
+    Exp.WfInHeap (.arr (ls.map Var.free) : Exp s) H := by
+  refine .wf_arr ?_
+  intro x hx
+  obtain ⟨l, hl, rfl⟩ := List.mem_map.mp hx
+  exact Var.wf_free_of_ne_none (h l hl)
+
+theorem CaptureSet.ofVars_free_wf {ls : List Nat} {H : Heap} (h : ∀ l ∈ ls, H l ≠ none) :
+    (CaptureSet.ofVars (ls.map Var.free) : CaptureSet s).WfInHeap H := by
+  apply CaptureSet.ofVars_wf
+  intro x hx
+  obtain ⟨l, hl, rfl⟩ := List.mem_map.mp hx
+  exact Var.wf_free_of_ne_none (h l hl)
+
+theorem Exp.splitExp_wf {ls : List Nat} {n : Nat} {H : Heap} (h : ∀ l ∈ ls, H l ≠ none) :
+    Exp.WfInHeap (Exp.splitExp ls n) H := by
+  have ht : ∀ l ∈ ls.take n, H l ≠ none := fun l hl => h l (List.mem_of_mem_take hl)
+  have hd : ∀ l ∈ ls.drop n, H l ≠ none := fun l hl => h l (List.mem_of_mem_drop hl)
+  unfold Exp.splitExp
+  refine .wf_letin (Exp.wf_arr_of ht) (.wf_letin (Exp.wf_arr_of hd)
+    (.wf_letin (.wf_pair .wf_bound .wf_bound) (.wf_pack ?_ .wf_bound)))
+  intro cs hcs
+  simp only [List.Vector.toList, List.mem_cons, List.not_mem_nil, or_false] at hcs
+  rcases hcs with rfl | rfl
+  · exact CaptureSet.ofVars_free_wf ht
+  · exact CaptureSet.ofVars_free_wf hd
+
 /-- Every `BigStep` answer value is an answer (`IsAns`). -/
 theorem BigStep.isAns {m e t v m'} (h : BigStep m e t v m') : v.IsAns := by
   induction h with
@@ -419,6 +504,10 @@ theorem BigStep.isAns {m e t v m'} (h : BigStep m e t v m') : v.IsAns := by
   | bs_alloc _ _ => exact Exp.IsAns.is_val Exp.IsVal.pack
   | bs_val hv => exact Exp.IsAns.is_val (by cases hv <;> constructor)
   | bs_var => exact Exp.IsAns.is_var
+  | bs_idx _ _ => exact Exp.IsAns.is_var
+  | bs_concat _ _ => exact Exp.IsAns.is_val Exp.IsVal.arr
+  | bs_fst _ => exact Exp.IsAns.is_var
+  | bs_snd _ => exact Exp.IsAns.is_var
   | bs_apply _ _ ih => exact ih
   | bs_invoke _ _ => exact Exp.IsAns.is_val Exp.IsVal.unit
   | bs_tapply _ _ ih => exact ih
@@ -426,6 +515,7 @@ theorem BigStep.isAns {m e t v m'} (h : BigStep m e t v m') : v.IsAns := by
   | bs_consumer_app _ _ ih => exact ih
   | bs_wrap => exact Exp.IsAns.is_val Exp.IsVal.boxed
   | bs_unwrap _ _ ih => exact ih
+  | bs_split _ _ ih => exact ih
   | bs_letin_val _ _ _ _ _ _ ih => exact ih
   | bs_letin_var _ _ _ ih => exact ih
   | bs_unpack _ _ _ ih => exact ih
@@ -443,6 +533,10 @@ theorem BigStep.subsumes {m e t v m'} (h : BigStep m e t v m') : m'.subsumes m :
   | bs_alloc hlk hfresh => exact Memory.extend_mcell_subsumes _ _ _ hfresh hlk
   | bs_val _ => exact Memory.subsumes_refl _
   | bs_var => exact Memory.subsumes_refl _
+  | bs_idx _ _ => exact Memory.subsumes_refl _
+  | bs_concat _ _ => exact Memory.subsumes_refl _
+  | bs_fst _ => exact Memory.subsumes_refl _
+  | bs_snd _ => exact Memory.subsumes_refl _
   | bs_apply _ _ ih => exact ih
   | bs_invoke _ _ => exact Memory.subsumes_refl _
   | bs_tapply _ _ ih => exact ih
@@ -450,6 +544,7 @@ theorem BigStep.subsumes {m e t v m'} (h : BigStep m e t v m') : m'.subsumes m :
   | bs_consumer_app _ _ ih => exact ih
   | bs_wrap => exact Memory.subsumes_refl _
   | bs_unwrap _ _ ih => exact ih
+  | bs_split _ _ ih => exact ih
   | bs_letin_val _ _ hwf hfresh _ ih1 ih2 =>
     exact Memory.subsumes_trans ih2
       (Memory.subsumes_trans (Memory.extend_val_subsumes _ _ _ hwf rfl hfresh) ih1)
@@ -917,6 +1012,25 @@ theorem BigStep.wf_answer {m : Memory} {e : Exp {}} {t v m'}
   | bs_pack => exact hwf
   | bs_val _ => exact hwf
   | bs_var => exact hwf
+  | bs_idx hlk hd =>
+    have hls := Exp.wf_arr_inv (Memory.wf_lookup hlk)
+    refine Exp.WfInHeap.wf_var ?_
+    rcases List.getD_mem_or_eq _ _ _ with hmem | heq
+    · exact Var.wf_free_of_ne_none (hls _ hmem)
+    · rw [heq]; exact Var.wf_free_of_ne_none hd
+  | bs_concat hx hy =>
+    have h1 := Exp.wf_arr_inv (Memory.wf_lookup hx)
+    have h2 := Exp.wf_arr_inv (Memory.wf_lookup hy)
+    exact Exp.wf_arr_of (fun l hl => by
+      rcases List.mem_append.mp hl with h | h
+      · exact h1 l h
+      · exact h2 l h)
+  | bs_fst hlk =>
+    have h := Memory.wf_lookup hlk
+    cases h with | wf_pair hx _ => exact .wf_var hx
+  | bs_snd hlk =>
+    have h := Memory.wf_lookup hlk
+    cases h with | wf_pair _ hy => exact .wf_var hy
   | bs_wrap => exact hwf
   | bs_alloc hlk hfresh =>
     exact Exp.WfInHeap.wf_pack
@@ -960,6 +1074,8 @@ theorem BigStep.wf_answer {m : Memory} {e : Exp {}} {t v m'}
     have hwf_boxed := Memory.wf_lookup hlk
     cases hwf_boxed with
     | wf_boxed _ _ hwf_e => exact hwf_e
+  | bs_split hlk _ ih =>
+    exact ih (Exp.splitExp_wf (Exp.wf_arr_inv (Memory.wf_lookup hlk)))
   | bs_letin_val hbs1 hv hwf_v hfresh hbs2 ih1 ih2 =>
     obtain ⟨_, hwf_e2⟩ := Exp.wf_inv_letin hwf
     apply ih2
@@ -1141,11 +1257,11 @@ theorem Memory.mcell_content_val {m : Memory} {y n : Nat}
 theorem BigStep.alloc_fresh {m : Memory} {e : Exp {}} {t v m' l}
     (hbs : BigStep m e t v m') (ha : Trace.allocd t l) : m.lookup l = none := by
   induction hbs with
-  | bs_pack | bs_val _ | bs_var | bs_wrap | bs_invoke _ _ | bs_read _ _ _
+  | bs_pack | bs_val _ | bs_var | bs_idx _ _ | bs_concat _ _ | bs_fst _ | bs_snd _ | bs_wrap | bs_invoke _ _ | bs_read _ _ _
   | bs_write _ _ | bs_drop _ => simp [Trace.allocd] at ha
   | bs_alloc _ hfresh => simp only [Trace.allocd, or_false] at ha; subst ha; exact hfresh
   | bs_apply _ _ ih | bs_tapply _ _ ih | bs_capply _ _ ih | bs_consumer_app _ _ ih
-  | bs_unwrap _ _ ih
+  | bs_unwrap _ _ ih | bs_split _ _ ih
   | bs_cond_true _ _ ih | bs_cond_false _ _ ih => exact ih ha
   | bs_par hbs1 _ ih1 ih2 =>
     rcases Trace.allocd_append.mp ha with h1 | h2
@@ -1305,7 +1421,7 @@ theorem BigStep.untouched_preserved {m : Memory} {e : Exp {}} {t v m' : _} {c : 
     (hbs : BigStep m e t v m') :
     m.lookup c ≠ none → ¬ Trace.touched t c → m'.lookup c = m.lookup c := by
   induction hbs with
-  | bs_pack | bs_val _ | bs_var | bs_wrap | bs_invoke _ _ | bs_read _ _ _ =>
+  | bs_pack | bs_val _ | bs_var | bs_idx _ _ | bs_concat _ _ | bs_fst _ | bs_snd _ | bs_wrap | bs_invoke _ _ | bs_read _ _ _ =>
     intro _ _; rfl
   | bs_alloc _ hfresh =>
     intro hc _
@@ -1318,7 +1434,7 @@ theorem BigStep.untouched_preserved {m : Memory} {e : Exp {}} {t v m' : _} {c : 
     intro _ hnt
     exact Memory.drop_mcell_lookup_ne (fun h => hnt (Or.inl h))
   | bs_apply _ _ ih | bs_tapply _ _ ih | bs_capply _ _ ih | bs_consumer_app _ _ ih
-  | bs_unwrap _ _ ih
+  | bs_unwrap _ _ ih | bs_split _ _ ih
   | bs_cond_true _ _ ih | bs_cond_false _ _ ih =>
     intro hc hnt; exact ih hc hnt
   | bs_letin_val hbs1 hv hwf hfresh hbs2 ih1 ih2 =>
@@ -1376,7 +1492,7 @@ theorem compute_reachability_frame {h1 h2 : Heap} {c : Nat} {ci1 ci2}
     compute_reachability h1 v hv = compute_reachability h2 v hv := by
   have hr := reachability_of_loc_frame hc1 hc2 hag
   cases hv with
-  | abs | tabs | cabs | consumer | boxed =>
+  | abs | tabs | cabs | consumer | boxed | arr | pair =>
     exact expand_captures_frame _ hr
   | reader => rename_i x; cases x with | free loc => rfl | bound bx => cases bx
   | unit | btrue | bfalse => rfl
@@ -1402,6 +1518,32 @@ theorem BigStep.frame_off {ma mb : Memory} {e : Exp {}} {t v ma' : _} {c : Nat}
     exact ⟨mb, BigStep.bs_val hv, hag, rfl⟩
   | bs_var =>
     exact ⟨mb, BigStep.bs_var, hag, rfl⟩
+  | bs_idx hlk hd =>
+    obtain ⟨ci, hci⟩ := hc
+    match hwf with
+    | .wf_idx (.wf_free (n := xx) _) (.wf_free (n := dd) hd1) =>
+      have hxc : xx ≠ c := fun h => by rw [h] at hlk; rw [hci] at hlk; cases hlk
+      have hlkb := (hag xx hxc) ▸ hlk
+      exact ⟨mb, BigStep.bs_idx hlkb (by rw [hd1]; exact Option.some_ne_none _), hag, rfl⟩
+  | bs_concat hx hy =>
+    obtain ⟨ci, hci⟩ := hc
+    match hwf with
+    | .wf_concat (.wf_free (n := xx) _) (.wf_free (n := yy) _) =>
+      have hxc : xx ≠ c := fun h => by rw [h] at hx; rw [hci] at hx; cases hx
+      have hyc : yy ≠ c := fun h => by rw [h] at hy; rw [hci] at hy; cases hy
+      exact ⟨mb, BigStep.bs_concat ((hag xx hxc) ▸ hx) ((hag yy hyc) ▸ hy), hag, rfl⟩
+  | bs_fst hlk =>
+    obtain ⟨ci, hci⟩ := hc
+    match hwf with
+    | .wf_fst (.wf_free (n := pp) _) =>
+      have hpc : pp ≠ c := fun h => by rw [h] at hlk; rw [hci] at hlk; cases hlk
+      exact ⟨mb, BigStep.bs_fst ((hag pp hpc) ▸ hlk), hag, rfl⟩
+  | bs_snd hlk =>
+    obtain ⟨ci, hci⟩ := hc
+    match hwf with
+    | .wf_snd (.wf_free (n := pp) _) =>
+      have hpc : pp ≠ c := fun h => by rw [h] at hlk; rw [hci] at hlk; cases hlk
+      exact ⟨mb, BigStep.bs_snd ((hag pp hpc) ▸ hlk), hag, rfl⟩
   | bs_wrap =>
     exact ⟨mb, BigStep.bs_wrap, hag, rfl⟩
   | @bs_alloc _ xx ll hlk hfresh =>
@@ -1478,6 +1620,15 @@ theorem BigStep.frame_off {ma mb : Memory} {e : Exp {}} {t v ma' : _} {c : Nat}
       obtain ⟨mb', hbsb, hag', hcpres⟩ :=
         ih ⟨ci, hci⟩ hcb hag hnt (match Memory.wf_lookup hlkb with | .wf_boxed _ _ he => he)
       exact ⟨mb', BigStep.bs_unwrap hlkb hbsb, hag', hcpres⟩
+  | bs_split hlk hbody ih =>
+    obtain ⟨ci, hci⟩ := hc
+    match hwf with
+    | .wf_split (.wf_free (n := xx) hx1) =>
+      have hxc : xx ≠ c := fun h => by rw [h] at hlk; rw [hci] at hlk; cases hlk
+      have hlkb := (hag xx hxc) ▸ hlk
+      obtain ⟨mb', hbsb, hag', hcpres⟩ :=
+        ih ⟨ci, hci⟩ hcb hag hnt (Exp.splitExp_wf (Exp.wf_arr_inv (Memory.wf_lookup hlkb)))
+      exact ⟨mb', BigStep.bs_split hlkb hbsb, hag', hcpres⟩
   | @bs_read _ xx yy nn _ _ hlkx hlky hlkn =>
     obtain ⟨ci, hci⟩ := hc
     have hxc : xx ≠ c := fun h => by rw [h] at hlkx; rw [hci] at hlkx; cases hlkx
@@ -1639,6 +1790,11 @@ theorem compute_reachability_frame_wf {h1 h2 : Heap} {c : Nat}
   | cabs => cases hwf with | wf_cabs hcs _ _ => exact expand_captures_frame_wf _ hcs hc2 hag
   | consumer => cases hwf with | wf_consumer hcs _ _ => exact expand_captures_frame_wf _ hcs hc2 hag
   | boxed => cases hwf with | wf_boxed hcs _ _ => exact expand_captures_frame_wf _ hcs hc2 hag
+  | arr => cases hwf with
+    | wf_arr hxs => exact expand_captures_frame_wf _ (CaptureSet.ofVars_wf hxs) hc2 hag
+  | pair => cases hwf with
+    | wf_pair hx hy =>
+      exact expand_captures_frame_wf _ (CaptureSet.ofVars_wf (Var.wf_pair_list hx hy)) hc2 hag
   | reader => rename_i x; cases x with | free loc => rfl | bound bx => cases bx
   | unit | btrue | bfalse => rfl
 
@@ -1668,6 +1824,29 @@ theorem BigStep.frame_off_absent {ma mb : Memory} {e : Exp {}} {t v ma' : _} {c 
     exact ⟨mb, BigStep.bs_val hv, hag, hcb, by simp [Trace.touched]⟩
   | bs_var =>
     exact ⟨mb, BigStep.bs_var, hag, hcb, by simp [Trace.touched]⟩
+  | bs_idx hlk hd =>
+    match hwf with
+    | .wf_idx (.wf_free (n := xx) hxb) (.wf_free (n := dd) hd1) =>
+      have hxc : xx ≠ c := fun h => by subst h; rw [Memory.lookup, hxb] at hcb; cases hcb
+      exact ⟨mb, BigStep.bs_idx ((hag xx hxc) ▸ hlk) (by rw [hd1]; exact Option.some_ne_none _),
+        hag, hcb, by simp [Trace.touched]⟩
+  | bs_concat hx hy =>
+    match hwf with
+    | .wf_concat (.wf_free (n := xx) hxb) (.wf_free (n := yy) hyb) =>
+      have hxc : xx ≠ c := fun h => by subst h; rw [Memory.lookup, hxb] at hcb; cases hcb
+      have hyc : yy ≠ c := fun h => by subst h; rw [Memory.lookup, hyb] at hcb; cases hcb
+      exact ⟨mb, BigStep.bs_concat ((hag xx hxc) ▸ hx) ((hag yy hyc) ▸ hy), hag, hcb,
+        by simp [Trace.touched]⟩
+  | bs_fst hlk =>
+    match hwf with
+    | .wf_fst (.wf_free (n := pp) hpb) =>
+      have hpc : pp ≠ c := fun h => by subst h; rw [Memory.lookup, hpb] at hcb; cases hcb
+      exact ⟨mb, BigStep.bs_fst ((hag pp hpc) ▸ hlk), hag, hcb, by simp [Trace.touched]⟩
+  | bs_snd hlk =>
+    match hwf with
+    | .wf_snd (.wf_free (n := pp) hpb) =>
+      have hpc : pp ≠ c := fun h => by subst h; rw [Memory.lookup, hpb] at hcb; cases hcb
+      exact ⟨mb, BigStep.bs_snd ((hag pp hpc) ▸ hlk), hag, hcb, by simp [Trace.touched]⟩
   | bs_wrap =>
     exact ⟨mb, BigStep.bs_wrap, hag, hcb, by simp [Trace.touched]⟩
   | @bs_alloc _ xx ll hlk hfresh =>
@@ -1739,6 +1918,14 @@ theorem BigStep.frame_off_absent {ma mb : Memory} {e : Exp {}} {t v ma' : _} {c 
       obtain ⟨mb', hbsb, hag', hcpres, hnt'⟩ :=
         ih hc hcb hag (match Memory.wf_lookup hlkb with | .wf_boxed _ _ he => he)
       exact ⟨mb', BigStep.bs_unwrap hlkb hbsb, hag', hcpres, hnt'⟩
+  | bs_split hlk hbody ih =>
+    match hwf with
+    | .wf_split (.wf_free (n := xx) hxb) =>
+      have hxc : xx ≠ c := fun h => by subst h; rw [Memory.lookup, hxb] at hcb; cases hcb
+      have hlkb := (hag xx hxc) ▸ hlk
+      obtain ⟨mb', hbsb, hag', hcpres, hnt'⟩ :=
+        ih hc hcb hag (Exp.splitExp_wf (Exp.wf_arr_inv (Memory.wf_lookup hlkb)))
+      exact ⟨mb', BigStep.bs_split hlkb hbsb, hag', hcpres, hnt'⟩
   | bs_read hlkx hlky hlkn =>
     match hwf with
     | .wf_read (.wf_free (n := xx) hxb) =>
@@ -1896,7 +2083,7 @@ theorem BigStep.val_preserved {m : Memory} {e : Exp {}} {t v m' : _} {l : Nat} {
     (hbs : BigStep m e t v m') (hl : m.lookup l = some (.val w)) :
     m'.lookup l = some (.val w) := by
   induction hbs with
-  | bs_pack | bs_val _ | bs_var | bs_wrap | bs_invoke _ _ | bs_read _ _ _ => exact hl
+  | bs_pack | bs_val _ | bs_var | bs_idx _ _ | bs_concat _ _ | bs_fst _ | bs_snd _ | bs_wrap | bs_invoke _ _ | bs_read _ _ _ => exact hl
   | bs_alloc _ hfresh =>
     have hne : l ≠ _ := fun h => by rw [h, Memory.lookup, hfresh] at hl; cases hl
     simp only [Memory.lookup, Memory.extend_mcell, Heap.extend_mcell, if_neg hne]
@@ -1908,7 +2095,7 @@ theorem BigStep.val_preserved {m : Memory} {e : Exp {}} {t v m' : _} {l : Nat} {
     have hne : l ≠ _ := fun h => by rw [h, hx] at hl; cases hl
     rw [Memory.drop_mcell_lookup_ne hne]; exact hl
   | bs_apply _ _ ih | bs_tapply _ _ ih | bs_capply _ _ ih | bs_consumer_app _ _ ih
-  | bs_unwrap _ _ ih
+  | bs_unwrap _ _ ih | bs_split _ _ ih
   | bs_cond_true _ _ ih | bs_cond_false _ _ ih => exact ih hl
   | bs_letin_val hbs1 hv hwf_v hfresh hbs2 ih1 ih2 =>
     have h1 := ih1 hl
@@ -1927,7 +2114,7 @@ theorem BigStep.unmutated_preserved {m : Memory} {e : Exp {}} {t v m' : _} {l : 
     (hw : ¬ (TraceItem.access .epsilon l ∈ t)) (hd : ¬ (TraceItem.dealloc l ∈ t)) :
     m'.lookup l = m.lookup l := by
   induction hbs with
-  | bs_pack | bs_val _ | bs_var | bs_wrap | bs_invoke _ _ | bs_read _ _ _ => rfl
+  | bs_pack | bs_val _ | bs_var | bs_idx _ _ | bs_concat _ _ | bs_fst _ | bs_snd _ | bs_wrap | bs_invoke _ _ | bs_read _ _ _ => rfl
   | bs_alloc _ hfresh =>
     have hlc : l ≠ _ := fun h => hne (by rw [h]; rw [Memory.lookup]; exact hfresh)
     simp only [Memory.lookup, Memory.extend_mcell, Heap.extend_mcell, if_neg hlc]
@@ -1938,7 +2125,7 @@ theorem BigStep.unmutated_preserved {m : Memory} {e : Exp {}} {t v m' : _} {l : 
     have hlc : l ≠ _ := fun h => hd (by rw [h]; exact List.mem_singleton.mpr rfl)
     exact Memory.drop_mcell_lookup_ne hlc
   | bs_apply _ _ ih | bs_tapply _ _ ih | bs_capply _ _ ih | bs_consumer_app _ _ ih
-  | bs_unwrap _ _ ih
+  | bs_unwrap _ _ ih | bs_split _ _ ih
   | bs_cond_true _ _ ih | bs_cond_false _ _ ih => exact ih hne hw hd
   | bs_letin_val hbs1 hv hwf_v hfresh hbs2 ih1 ih2 =>
     rw [List.mem_append, not_or] at hw hd
@@ -2119,6 +2306,18 @@ theorem BigStep.step_run_commute {ts s : Trace} {m1 m2 mb : Memory}
     exact ⟨mb, hrun, Step.step_consumer_app (BigStep.val_preserved hrun hlk)⟩
   | step_unwrap hlk =>
     exact ⟨mb, hrun, Step.step_unwrap (BigStep.val_preserved hrun hlk)⟩
+  | step_idx hlk hd =>
+    exact ⟨mb, hrun, Step.step_idx (BigStep.val_preserved hrun hlk)
+      (fun h => hd (Heap.none_of_subsumes_none hrun.subsumes h))⟩
+  | step_concat hlk hlk2 =>
+    exact ⟨mb, hrun, Step.step_concat (BigStep.val_preserved hrun hlk)
+      (BigStep.val_preserved hrun hlk2)⟩
+  | step_split hlk =>
+    exact ⟨mb, hrun, Step.step_split (BigStep.val_preserved hrun hlk)⟩
+  | step_fst hlk =>
+    exact ⟨mb, hrun, Step.step_fst (BigStep.val_preserved hrun hlk)⟩
+  | step_snd hlk =>
+    exact ⟨mb, hrun, Step.step_snd (BigStep.val_preserved hrun hlk)⟩
   | step_cond_var_true hlk =>
     exact ⟨mb, hrun, Step.step_cond_var_true (BigStep.val_preserved hrun hlk)⟩
   | step_cond_var_false hlk =>
@@ -2264,7 +2463,7 @@ theorem BigStep.appears_allocd_of_cap {m : Memory} {e : Exp {}} {t v m' l c}
     (hbs : BigStep m e t v m') (hl : m.lookup l = none)
     (hl' : m'.lookup l = some (.capability c)) : Trace.allocd t l := by
   induction hbs generalizing c with
-  | bs_pack | bs_val _ | bs_var | bs_wrap | bs_invoke _ _ | bs_read _ _ _ =>
+  | bs_pack | bs_val _ | bs_var | bs_idx _ _ | bs_concat _ _ | bs_fst _ | bs_snd _ | bs_wrap | bs_invoke _ _ | bs_read _ _ _ =>
     rw [hl] at hl'; simp at hl'
   | bs_alloc _ hfresh =>
     have heq := Memory.extend_mcell_lookup_eq_base_of_ne hl' hl
@@ -2274,7 +2473,7 @@ theorem BigStep.appears_allocd_of_cap {m : Memory} {e : Exp {}} {t v m' l c}
   | bs_drop hx =>
     rw [Memory.drop_mcell_lookup_none hl ⟨_, hx⟩] at hl'; simp at hl'
   | bs_apply _ _ ih | bs_tapply _ _ ih | bs_capply _ _ ih | bs_consumer_app _ _ ih
-  | bs_unwrap _ _ ih
+  | bs_unwrap _ _ ih | bs_split _ _ ih
   | bs_cond_true _ _ ih | bs_cond_false _ _ ih =>
     exact ih hl hl'
   | bs_par hbs1 hbs2 ih1 ih2 =>
@@ -2341,7 +2540,7 @@ theorem BigStep.trace_cells_cap {m : Memory} {e : Exp {}} {t v m'}
     (hbs : BigStep m e t v m') :
     ∀ l, Trace.touched t l → ∃ c, m'.lookup l = some (.capability c) := by
   induction hbs with
-  | bs_pack | bs_val _ | bs_var | bs_wrap | bs_alloc _ _ =>
+  | bs_pack | bs_val _ | bs_var | bs_idx _ _ | bs_concat _ _ | bs_fst _ | bs_snd _ | bs_wrap | bs_alloc _ _ =>
     intro l h; simp only [Trace.touched] at h
   | bs_invoke hlkx _ =>
     intro l h; simp only [Trace.touched, or_false] at h; subst h; exact ⟨_, hlkx⟩
@@ -2354,7 +2553,7 @@ theorem BigStep.trace_cells_cap {m : Memory} {e : Exp {}} {t v m'}
     intro l h; simp only [Trace.touched, or_false] at h; subst h
     simp [Memory.lookup, Memory.drop_mcell, Heap.update_cell]
   | bs_apply _ _ ih | bs_tapply _ _ ih | bs_capply _ _ ih | bs_consumer_app _ _ ih
-  | bs_unwrap _ _ ih
+  | bs_unwrap _ _ ih | bs_split _ _ ih
   | bs_cond_true _ _ ih | bs_cond_false _ _ ih =>
     exact ih
   | bs_par hbs1 hbs2 ih1 ih2 =>
@@ -2444,7 +2643,7 @@ theorem BigStep.live_appears_allocd {m : Memory} {e : Exp {}} {t v m' l b}
     (hbs : BigStep m e t v m') (hl : m.lookup l = none)
     (hl' : m'.lookup l = some (.capability (.mcell b .live))) : Trace.allocd t l := by
   induction hbs generalizing b with
-  | bs_pack | bs_val _ | bs_var | bs_wrap | bs_invoke _ _ | bs_read _ _ _ =>
+  | bs_pack | bs_val _ | bs_var | bs_idx _ _ | bs_concat _ _ | bs_fst _ | bs_snd _ | bs_wrap | bs_invoke _ _ | bs_read _ _ _ =>
     rw [hl] at hl'; simp at hl'
   | bs_alloc _ hfresh =>
     have heq := Memory.extend_mcell_lookup_eq_base_of_ne hl' hl
@@ -2454,7 +2653,7 @@ theorem BigStep.live_appears_allocd {m : Memory} {e : Exp {}} {t v m' l b}
   | bs_drop hx =>
     rw [Memory.drop_mcell_lookup_none hl ⟨_, hx⟩] at hl'; simp at hl'
   | bs_apply _ _ ih | bs_tapply _ _ ih | bs_capply _ _ ih | bs_consumer_app _ _ ih
-  | bs_unwrap _ _ ih
+  | bs_unwrap _ _ ih | bs_split _ _ ih
   | bs_cond_true _ _ ih | bs_cond_false _ _ ih =>
     exact ih hl hl'
   | bs_par hbs1 hbs2 ih1 ih2 =>
@@ -2658,7 +2857,7 @@ theorem step_allocd_mcell {t : Trace} {m1 e1 m2 e2 : _} {l : Nat}
     ∃ info, m2.heap l = some (.capability info) := by
   induction hstep with
   | step_apply | step_invoke _ _ | step_tapply | step_capply | step_consumer_app
-  | step_unwrap
+  | step_unwrap | step_idx | step_concat | step_split | step_fst | step_snd
   | step_cond_var_true _ | step_cond_var_false _ | step_read _ _
   | step_write _ _ | step_drop _
   | step_rename | step_unpack | step_par_join _ _ | step_lift _ _ _ =>
@@ -3012,7 +3211,7 @@ theorem TraceOk.touchesWith_covered_or_allocd {C : CapabilitySet} {l : Nat}
 theorem step_touched_present {t : Trace} {m1 e1 m2 e2 : _} {l : Nat}
     (hstep : Step t m1 e1 m2 e2) (htch : Trace.touched t l) : m1.lookup l ≠ none := by
   induction hstep with
-  | step_apply | step_tapply | step_capply | step_consumer_app | step_unwrap
+  | step_apply | step_tapply | step_capply | step_consumer_app | step_unwrap | step_idx | step_concat | step_split | step_fst | step_snd
   | step_cond_var_true _ | step_cond_var_false _
   | step_rename | step_unpack | step_par_join _ _ | step_lift _ _ _ =>
     simp only [Trace.touched] at htch
@@ -3038,7 +3237,7 @@ theorem step_allocd_fresh {t : Trace} {m1 e1 m2 e2 : _} {l : Nat}
     (hstep : SeqStep t m1 e1 m2 e2) (hal : Trace.allocd t l) : m1.heap l = none := by
   induction hstep with
   | step_apply | step_invoke _ _ | step_tapply | step_capply | step_consumer_app
-  | step_unwrap
+  | step_unwrap | step_idx | step_concat | step_split | step_fst | step_snd
   | step_cond_var_true _ | step_cond_var_false _ | step_read _ _
   | step_write _ _ | step_drop _
   | step_rename | step_unpack | step_par_join _ _ | step_lift _ _ _ =>
@@ -3053,7 +3252,7 @@ theorem step_allocd_present {t : Trace} {m1 e1 m2 e2 : _} {l : Nat}
     (hstep : SeqStep t m1 e1 m2 e2) (hal : Trace.allocd t l) : m2.heap l ≠ none := by
   induction hstep with
   | step_apply | step_invoke _ _ | step_tapply | step_capply | step_consumer_app
-  | step_unwrap
+  | step_unwrap | step_idx | step_concat | step_split | step_fst | step_snd
   | step_cond_var_true _ | step_cond_var_false _ | step_read _ _
   | step_write _ _ | step_drop _
   | step_rename | step_unpack | step_par_join _ _ | step_lift _ _ _ =>
@@ -3157,10 +3356,10 @@ theorem Memory.update_mcell_preserves_live {m : Memory} (x : Nat) {b : Nat} {h h
 theorem BigStep.frameLive {m : Memory} {e : Exp {}} {t v m'}
     (hbs : BigStep m e t v m') : Memory.FrameLive m t m' := by
   induction hbs with
-  | bs_pack | bs_val _ | bs_var | bs_wrap | bs_invoke _ _ | bs_read _ _ _ =>
+  | bs_pack | bs_val _ | bs_var | bs_idx _ _ | bs_concat _ _ | bs_fst _ | bs_snd _ | bs_wrap | bs_invoke _ _ | bs_read _ _ _ =>
     exact Memory.FrameLive.refl
   | bs_apply _ _ ih | bs_tapply _ _ ih | bs_capply _ _ ih | bs_consumer_app _ _ ih
-  | bs_unwrap _ _ ih
+  | bs_unwrap _ _ ih | bs_split _ _ ih
   | bs_cond_true _ _ ih | bs_cond_false _ _ ih =>
     exact ih
   | bs_par hbs1 hbs2 ih1 ih2 =>
@@ -3299,7 +3498,7 @@ theorem Step.frameLive {t : Trace} {m1 m2 : Memory} {e1 e2 : Exp {}}
     (hstep : Step t m1 e1 m2 e2) : Memory.FrameLive m1 t m2 := by
   induction hstep with
   | step_apply _ | step_invoke _ _ | step_tapply _ | step_capply _ | step_consumer_app _
-  | step_unwrap _
+  | step_unwrap _ | step_idx _ _ | step_concat _ _ | step_split _ | step_fst _ | step_snd _
   | step_cond_var_true _ | step_cond_var_false _ | step_read _ _
   | step_rename | step_unpack | step_par_join _ _ =>
     exact Memory.FrameLive.refl
@@ -3330,7 +3529,7 @@ theorem SeqStep.frameLive {t : Trace} {m1 m2 : Memory} {e1 e2 : Exp {}}
     (hstep : SeqStep t m1 e1 m2 e2) : Memory.FrameLive m1 t m2 := by
   induction hstep with
   | step_apply _ | step_invoke _ _ | step_tapply _ | step_capply _ | step_consumer_app _
-  | step_unwrap _
+  | step_unwrap _ | step_idx _ _ | step_concat _ _ | step_split _ | step_fst _ | step_snd _
   | step_cond_var_true _ | step_cond_var_false _ | step_read _ _
   | step_rename | step_unpack | step_par_join _ _ =>
     exact Memory.FrameLive.refl

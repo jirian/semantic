@@ -24,6 +24,16 @@ theorem CaptureSet.growByAllocs_append (C : CaptureSet {}) (t1 t2 : Trace) :
   | nil => rfl
   | cons it t1 ih => cases it <;> simp only [List.cons_append, CaptureSet.growByAllocs, ih]
 
+/-- The derived expression a `split` of the array with cells `ls` at `n` steps to:
+  allocate the two halves and their pair, and pack the pair with the two halves'
+  cell sets as the (fresh) witnesses.  `here` is the left half's witness. -/
+def Exp.splitExp (ls : List Nat) (n : Nat) : Exp {} :=
+  .letin (.arr ((ls.take n).map .free))
+    (.letin (.arr ((ls.drop n).map .free))
+      (.letin (.pair (.bound (.there .here)) (.bound .here))
+        (.pack ⟨[CaptureSet.ofVars ((ls.take n).map .free),
+                 CaptureSet.ofVars ((ls.drop n).map .free)], rfl⟩ (.bound .here))))
+
 /-- Small-step evaluation relation instrumented with a trace.
   `Step t m e m' e'` means that expression `e` in memory `m` steps to `e'` in
   memory `m'`, emitting the trace `t` of heap events performed by this step. -/
@@ -48,6 +58,23 @@ inductive Step : Trace -> Memory -> Exp {} -> Memory -> Exp {} -> Prop where
 | step_unwrap :
   m.lookup x = some (.val ⟨.boxed cs Ψ e, hv, R⟩) ->
   Step [] m (.unwrap (.free x)) m e
+| step_idx {ls : List Nat} {n : Nat} :
+  m.lookup x = some (.val ⟨.arr (ls.map Var.free), .arr, R⟩) ->
+  m.heap d ≠ none ->
+  Step [] m (.idx (.free x) n (.free d)) m (.var (.free (ls.getD n d)))
+| step_concat {ls1 ls2 : List Nat} :
+  m.lookup x = some (.val ⟨.arr (ls1.map Var.free), .arr, R1⟩) ->
+  m.lookup y = some (.val ⟨.arr (ls2.map Var.free), .arr, R2⟩) ->
+  Step [] m (.concat (.free x) (.free y)) m (.arr ((ls1 ++ ls2).map .free))
+| step_split {ls : List Nat} {n : Nat} :
+  m.lookup x = some (.val ⟨.arr (ls.map Var.free), .arr, R⟩) ->
+  Step [] m (.split (.free x) n) m (Exp.splitExp ls n)
+| step_fst :
+  m.lookup p = some (.val ⟨.pair (.free x) (.free y), .pair, R⟩) ->
+  Step [] m (.fst (.free p)) m (.var (.free x))
+| step_snd :
+  m.lookup p = some (.val ⟨.pair (.free x) (.free y), .pair, R⟩) ->
+  Step [] m (.snd (.free p)) m (.var (.free y))
 | step_cond_var_true :
   m.lookup x = some (.val ⟨.btrue, hv, R⟩) ->
   Step [] m (.cond (.free x) e1 e2) m e1
@@ -162,6 +189,23 @@ inductive SeqStep : Trace -> Memory -> Exp {} -> Memory -> Exp {} -> Prop where
 | step_unwrap :
   m.lookup x = some (.val ⟨.boxed cs Ψ e, hv, R⟩) ->
   SeqStep [] m (.unwrap (.free x)) m e
+| step_idx {ls : List Nat} {n : Nat} :
+  m.lookup x = some (.val ⟨.arr (ls.map Var.free), .arr, R⟩) ->
+  m.heap d ≠ none ->
+  SeqStep [] m (.idx (.free x) n (.free d)) m (.var (.free (ls.getD n d)))
+| step_concat {ls1 ls2 : List Nat} :
+  m.lookup x = some (.val ⟨.arr (ls1.map Var.free), .arr, R1⟩) ->
+  m.lookup y = some (.val ⟨.arr (ls2.map Var.free), .arr, R2⟩) ->
+  SeqStep [] m (.concat (.free x) (.free y)) m (.arr ((ls1 ++ ls2).map .free))
+| step_split {ls : List Nat} {n : Nat} :
+  m.lookup x = some (.val ⟨.arr (ls.map Var.free), .arr, R⟩) ->
+  SeqStep [] m (.split (.free x) n) m (Exp.splitExp ls n)
+| step_fst :
+  m.lookup p = some (.val ⟨.pair (.free x) (.free y), .pair, R⟩) ->
+  SeqStep [] m (.fst (.free p)) m (.var (.free x))
+| step_snd :
+  m.lookup p = some (.val ⟨.pair (.free x) (.free y), .pair, R⟩) ->
+  SeqStep [] m (.snd (.free p)) m (.var (.free y))
 | step_cond_var_true :
   m.lookup x = some (.val ⟨.btrue, hv, R⟩) ->
   SeqStep [] m (.cond (.free x) e1 e2) m e1
