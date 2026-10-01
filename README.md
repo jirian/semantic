@@ -103,3 +103,19 @@ logical model, and the theorems listed above. The surface calculus
 (System Capybara) and its type-preserving compilation into CoreCapybara are
 developed on paper, in the paper's translation appendix; they are not part
 of this repository.
+
+## Extension: owned splitting of capabilities (branch `split-capabilities`)
+
+This branch extends CoreCapybara with arrays of cells, **owned splitting**, joining,
+indexing and pairs, and re-establishes the fundamental theorem (and hence all adequacy
+results above) for the extended calculus. The development remains sorry-free.
+
+| Notion | Lean declaration | File |
+| --- | --- | --- |
+| Array / pair types | `Ty.arr`, `Ty.pair` | [Syntax/Ty.lean](Semantic/CoreCapybara/Syntax/Ty.lean) |
+| New terms | `Exp.arr`, `Exp.idx`, `Exp.concat`, `Exp.split`, `Exp.pair`, `Exp.fst`, `Exp.snd` | [Syntax/Exp.lean](Semantic/CoreCapybara/Syntax/Exp.lean) |
+| Typing rules (split typed like `pack`) | `HasType.arr`, `.idx`, `.concat`, `.split`, `.pair`, `.fst`, `.snd`; `Ty.splitBody` | [TypeSystem/Core.lean](Semantic/CoreCapybara/TypeSystem/Core.lean) |
+| Split reduces to a let-chain ending in `pack` | `Exp.splitExp`, `Step.step_split`, `BigStep.bs_split` | [Semantics/SmallStep.lean](Semantic/CoreCapybara/Semantics/SmallStep.lean), [Semantics/BigStep.lean](Semantic/CoreCapybara/Semantics/BigStep.lean) |
+| Interpretation of arrays (distinct, store-typed cells) and pairs | `Ty.val_denot` cases `.arr`, `.pair` | [Denotation/Core.lean](Semantic/CoreCapybara/Denotation/Core.lean) |
+| Soundness of owned split | `sem_typ_split` | [Fundamental.lean](Semantic/CoreCapybara/Fundamental.lean) |
+| Soundness of join / index / literals / pairs | `sem_typ_concat`, `sem_typ_idx`, `sem_typ_arr`, `sem_typ_pair`, `sem_typ_fst`, `sem_typ_snd` | [Fundamental.lean](Semantic/CoreCapybara/Fundamental.lean) |
