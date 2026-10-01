@@ -91,7 +91,7 @@ theorem step_memory_monotonic
   m2.subsumes m1 := by
   induction hstep with
   | step_apply | step_invoke | step_tapply | step_capply | step_consumer_app
-  | step_unwrap
+  | step_unwrap | step_idx | step_concat | step_split | step_fst | step_snd
   | step_cond_var_true _ | step_cond_var_false _ | step_read _ _
   | step_rename | step_unpack | step_par_join _ _ =>
     exact Memory.subsumes_refl _
@@ -229,6 +229,27 @@ theorem step_preserves_wf
     cases hwf_boxed with
     | wf_boxed _ _ hwf_body =>
       exact hwf_body
+  | step_idx hlk hd =>
+    have hls := Exp.wf_arr_inv (Memory.wf_lookup hlk)
+    refine Exp.WfInHeap.wf_var ?_
+    rcases List.getD_mem_or_eq _ _ _ with hmem | heq
+    · exact Var.wf_free_of_ne_none (hls _ hmem)
+    · rw [heq]; exact Var.wf_free_of_ne_none hd
+  | step_concat hx hy =>
+    have h1 := Exp.wf_arr_inv (Memory.wf_lookup hx)
+    have h2 := Exp.wf_arr_inv (Memory.wf_lookup hy)
+    exact Exp.wf_arr_of (fun l hl => by
+      rcases List.mem_append.mp hl with h | h
+      · exact h1 l h
+      · exact h2 l h)
+  | step_split hlk =>
+    exact Exp.splitExp_wf (Exp.wf_arr_inv (Memory.wf_lookup hlk))
+  | step_fst hlk =>
+    have h := Memory.wf_lookup hlk
+    cases h with | wf_pair hx _ => exact .wf_var hx
+  | step_snd hlk =>
+    have h := Memory.wf_lookup hlk
+    cases h with | wf_pair _ hy => exact .wf_var hy
   | step_cond_var_true hlookup =>
     have ⟨_, hwf_then, _⟩ := Exp.wf_inv_cond hwf
     exact hwf_then
@@ -436,6 +457,11 @@ theorem safe_implies_progressive {k : Nat} {m : Memory} {e : Exp {}}
   | unwrap hlookup _ _ =>
     intro _
     exact IsProgressive.step (SeqStep.step_unwrap hlookup)
+  | idx hlk hd => intro _; exact IsProgressive.step (SeqStep.step_idx hlk hd)
+  | concat hx hy => intro _; exact IsProgressive.step (SeqStep.step_concat hx hy)
+  | split hlk _ _ => intro _; exact IsProgressive.step (SeqStep.step_split hlk)
+  | fst hlk => intro _; exact IsProgressive.step (SeqStep.step_fst hlk)
+  | snd hlk => intro _; exact IsProgressive.step (SeqStep.step_snd hlk)
   | letin _ h_ans _ _ ih_e1 _ _ =>
     intro hk
     cases ih_e1 hk with
@@ -574,6 +600,26 @@ theorem BigStep.head_expand {t : Trace} {m1 e1 m2 e2 : _}
   | step_capply hlk => intro t' v m' hbs; exact BigStep.bs_capply hlk hbs
   | step_consumer_app hlk => intro t' v m' hbs; exact BigStep.bs_consumer_app hlk hbs
   | step_unwrap hlk => intro t' v m' hbs; exact BigStep.bs_unwrap hlk hbs
+  | step_split hlk => intro t' v m' hbs; exact BigStep.bs_split hlk hbs
+  | step_idx hlk hd =>
+    intro t' v m' hbs
+    cases hbs with
+    | bs_var => exact BigStep.bs_idx hlk hd
+    | bs_val hv => cases hv
+  | step_concat hx hy =>
+    intro t' v m' hbs
+    obtain ⟨rfl, rfl, rfl⟩ := BigStep.simpleVal_eq Exp.IsSimpleVal.arr hbs
+    exact BigStep.bs_concat hx hy
+  | step_fst hlk =>
+    intro t' v m' hbs
+    cases hbs with
+    | bs_var => exact BigStep.bs_fst hlk
+    | bs_val hv => cases hv
+  | step_snd hlk =>
+    intro t' v m' hbs
+    cases hbs with
+    | bs_var => exact BigStep.bs_snd hlk
+    | bs_val hv => cases hv
   | step_cond_var_true hlk =>
     intro t' v m' hbs
     simp only [Memory.lookup] at hlk
@@ -915,6 +961,51 @@ theorem safe_reduce_progressive {k : Nat} {m : Memory} {e : Exp {}}
     · have hbs1 := reduce_to_bigstep hr1 (Exp.IsAns.is_val Exp.IsVal.pack)
       rw [Trace.readCount_append] at hbud
       exact ihval hbs1 hr2 (by omega)
+  | split hlk _ ih =>
+    intro t m' e' hred hbud
+    cases hred with
+    | refl => exact IsProgressive.step (SeqStep.step_split hlk)
+    | step hstep rest =>
+      cases hstep with
+      | step_split hlk2 =>
+        obtain rfl := Memory.lookup_arr_eq hlk hlk2
+        exact ih rest (by simpa using hbud)
+  | idx hlk hd =>
+    intro t m' e' hred _
+    cases hred with
+    | refl => exact IsProgressive.step (SeqStep.step_idx hlk hd)
+    | step hstep rest =>
+      cases hstep with
+      | step_idx _ _ =>
+        obtain ⟨rfl, rfl, rfl⟩ := seqreduce_ans_eq Exp.IsAns.is_var rest
+        exact IsProgressive.done Exp.IsAns.is_var
+  | concat hx hy =>
+    intro t m' e' hred _
+    cases hred with
+    | refl => exact IsProgressive.step (SeqStep.step_concat hx hy)
+    | step hstep rest =>
+      cases hstep with
+      | step_concat _ _ =>
+        obtain ⟨rfl, rfl, rfl⟩ := seqreduce_ans_eq (Exp.IsAns.is_val Exp.IsVal.arr) rest
+        exact IsProgressive.done (Exp.IsAns.is_val Exp.IsVal.arr)
+  | fst hlk =>
+    intro t m' e' hred _
+    cases hred with
+    | refl => exact IsProgressive.step (SeqStep.step_fst hlk)
+    | step hstep rest =>
+      cases hstep with
+      | step_fst _ =>
+        obtain ⟨rfl, rfl, rfl⟩ := seqreduce_ans_eq Exp.IsAns.is_var rest
+        exact IsProgressive.done Exp.IsAns.is_var
+  | snd hlk =>
+    intro t m' e' hred _
+    cases hred with
+    | refl => exact IsProgressive.step (SeqStep.step_snd hlk)
+    | step hstep rest =>
+      cases hstep with
+      | step_snd _ =>
+        obtain ⟨rfl, rfl, rfl⟩ := seqreduce_ans_eq Exp.IsAns.is_var rest
+        exact IsProgressive.done Exp.IsAns.is_var
   | read hlkx hlky hcontent =>
     intro t m' e' hred _
     cases hred with
@@ -1092,6 +1183,18 @@ theorem Safe.has_reduction {k : Nat} {m : Memory} {e : Exp {}} (h : Safe k m e) 
     · exact ⟨t1, _, _, seqreduce_ctx_unpack hred1, Or.inr hover1⟩
   | read hlkx hlky _ =>
     exact Safe.has_reduction_of_step_ans (SeqStep.step_read hlkx hlky) Exp.IsAns.is_var
+  | split hlk _ ih =>
+    obtain ⟨t, m', a, hred, hdisj⟩ := ih
+    exact ⟨_, _, _, SeqReduce.step (SeqStep.step_split hlk) hred, by simpa using hdisj⟩
+  | idx hlk hd =>
+    exact Safe.has_reduction_of_step_ans (SeqStep.step_idx hlk hd) Exp.IsAns.is_var
+  | concat hx hy =>
+    exact Safe.has_reduction_of_step_ans (SeqStep.step_concat hx hy)
+      (Exp.IsAns.is_val Exp.IsVal.arr)
+  | fst hlk =>
+    exact Safe.has_reduction_of_step_ans (SeqStep.step_fst hlk) Exp.IsAns.is_var
+  | snd hlk =>
+    exact Safe.has_reduction_of_step_ans (SeqStep.step_snd hlk) Exp.IsAns.is_var
   | write hx hy =>
     exact Safe.has_reduction_of_step_ans (SeqStep.step_write hx hy)
       (Exp.IsAns.is_val Exp.IsVal.unit)
@@ -1176,7 +1279,7 @@ theorem step_immutable
   intro l b ℓ hinit
   induction hstep with
   | step_apply | step_invoke | step_tapply | step_capply | step_consumer_app
-  | step_unwrap
+  | step_unwrap | step_idx | step_concat | step_split | step_fst | step_snd
   | step_cond_var_true _ | step_cond_var_false _ | step_read _ _
   | step_rename | step_unpack | step_par_join _ _ =>
     exact hinit
@@ -1229,7 +1332,7 @@ theorem step_preserves_cell {t : Trace} {m1 e1 m2 e2 : _} {l : Nat} {b : Nat} {�
     m2.heap l = some (.capability (.mcell b ℓ)) := by
   induction hstep with
   | step_apply _ | step_invoke _ _ | step_tapply _ | step_capply _ | step_consumer_app _
-  | step_unwrap _
+  | step_unwrap _ | step_idx _ _ | step_concat _ _ | step_split _ | step_fst _ | step_snd _
   | step_cond_var_true _ | step_cond_var_false _ | step_read _ _
   | step_rename | step_unpack | step_par_join _ _ =>
     intro _ _ hinit; exact hinit

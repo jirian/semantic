@@ -497,6 +497,14 @@ theorem Exp.splitExp_wf {ls : List Nat} {n : Nat} {H : Heap} (h : ∀ l ∈ ls, 
   · exact CaptureSet.ofVars_free_wf ht
   · exact CaptureSet.ofVars_free_wf hd
 
+theorem Memory.lookup_arr_eq {m : Memory} {x : Nat} {ls ls' : List Nat}
+    {R R' : CapabilitySet}
+    (h1 : m.lookup x = some (.val ⟨.arr (ls.map Var.free), .arr, R⟩))
+    (h2 : m.lookup x = some (.val ⟨.arr (ls'.map Var.free), .arr, R'⟩)) : ls = ls' := by
+  have h := h1.symm.trans h2
+  simp only [Option.some.injEq, Cell.val.injEq, HeapVal.mk.injEq, Exp.arr.injEq] at h
+  exact List.map_injective_iff.mpr (fun a b h => by cases h; rfl) h.1
+
 /-- Every `BigStep` answer value is an answer (`IsAns`). -/
 theorem BigStep.isAns {m e t v m'} (h : BigStep m e t v m') : v.IsAns := by
   induction h with

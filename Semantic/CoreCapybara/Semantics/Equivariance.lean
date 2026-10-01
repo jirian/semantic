@@ -31,6 +31,12 @@ def CaptureSet.renameLoc (π : Equiv.Perm Nat) : CaptureSet s → CaptureSet s
 | .var m x => .var m (x.renameLoc π)
 | .cvar m x => .cvar m x
 
+theorem CaptureSet.ofVars_renameLoc (π : Equiv.Perm Nat) (xs : List (Var .var s)) :
+    (CaptureSet.ofVars xs).renameLoc π = CaptureSet.ofVars (xs.map (·.renameLoc π)) := by
+  induction xs with
+  | nil => rfl
+  | cons x xs ih => simp only [CaptureSet.ofVars, CaptureSet.renameLoc, List.map_cons, ih]
+
 /-- Rename all free locations in a capture bound. -/
 def CaptureBound.renameLoc (π : Equiv.Perm Nat) : CaptureBound s → CaptureBound s
 | .unbound => .unbound
@@ -70,6 +76,8 @@ def Ty.renameLoc (π : Equiv.Perm Nat) : Ty sort s → Ty sort s
 | .bool => .bool
 | .cell cs T => .cell (cs.renameLoc π) (T.renameLoc π)
 | .reader cs T => .reader (cs.renameLoc π) (T.renameLoc π)
+| .arr cs T => .arr (cs.renameLoc π) (T.renameLoc π)
+| .pair cs T1 T2 => .pair (cs.renameLoc π) (T1.renameLoc π) (T2.renameLoc π)
 | .exi n T => .exi n (T.renameLoc π)
 | .typ T => .typ (T.renameLoc π)
 
@@ -122,6 +130,13 @@ def Exp.renameLoc (π : Equiv.Perm Nat) : Exp s → Exp s
 | .write x y => .write (x.renameLoc π) (y.renameLoc π)
 | .cond x e2 e3 => .cond (x.renameLoc π) (e2.renameLoc π) (e3.renameLoc π)
 | .par C1 C2 e1 e2 => .par (C1.renameLoc π) (C2.renameLoc π) (e1.renameLoc π) (e2.renameLoc π)
+| .arr xs => .arr (xs.map (·.renameLoc π))
+| .idx x n d => .idx (x.renameLoc π) n (d.renameLoc π)
+| .concat x y => .concat (x.renameLoc π) (y.renameLoc π)
+| .split x n => .split (x.renameLoc π) n
+| .pair x y => .pair (x.renameLoc π) (y.renameLoc π)
+| .fst x => .fst (x.renameLoc π)
+| .snd x => .snd (x.renameLoc π)
 
 /-! ### Predicate transport (value/answer shapes are preserved by `renameLoc`) -/
 
@@ -212,6 +227,8 @@ theorem Ty.renameLoc_rename (π : Equiv.Perm Nat) {sort : TySort} {s1 s2 : Sig}
       ModalCtx.renameLoc_rename, ih]
   | cap _ => simp only [Ty.rename, Ty.renameLoc, CaptureSet.renameLoc_rename]
   | cell _ _ ih => simp only [Ty.rename, Ty.renameLoc, CaptureSet.renameLoc_rename, ih]
+  | arr _ _ ih => simp only [Ty.rename, Ty.renameLoc, CaptureSet.renameLoc_rename, ih]
+  | pair _ _ _ ih1 ih2 => simp only [Ty.rename, Ty.renameLoc, CaptureSet.renameLoc_rename, ih1, ih2]
   | reader _ _ ih => simp only [Ty.rename, Ty.renameLoc, CaptureSet.renameLoc_rename, ih]
   | exi _ _ ih => simp only [Ty.rename, Ty.renameLoc, ih]
   | typ _ ih => simp only [Ty.rename, Ty.renameLoc, ih]
@@ -260,6 +277,13 @@ theorem Exp.renameLoc_rename (π : Equiv.Perm Nat) {s1 s2 : Sig}
   | bfalse => rfl
   | read x => simp only [Exp.rename, Exp.renameLoc, Var.renameLoc_rename]
   | write x y => simp only [Exp.rename, Exp.renameLoc, Var.renameLoc_rename]
+  | idx x n d => simp only [Exp.rename, Exp.renameLoc, Var.renameLoc_rename]
+  | concat x y => simp only [Exp.rename, Exp.renameLoc, Var.renameLoc_rename]
+  | split x n => simp only [Exp.rename, Exp.renameLoc, Var.renameLoc_rename]
+  | pair x y => simp only [Exp.rename, Exp.renameLoc, Var.renameLoc_rename]
+  | fst x => simp only [Exp.rename, Exp.renameLoc, Var.renameLoc_rename]
+  | snd x => simp only [Exp.rename, Exp.renameLoc, Var.renameLoc_rename]
+  | arr xs => simp only [Exp.rename, Exp.renameLoc, Var.renameLoc_rename, List.map_map, Function.comp_def, List.map_id']
   | cond x _ _ ih1 ih2 => simp only [Exp.rename, Exp.renameLoc, Var.renameLoc_rename, ih1, ih2]
   | par _ _ _ _ ih1 ih2 => simp only [Exp.rename, Exp.renameLoc, CaptureSet.renameLoc_rename,
       ih1, ih2]
@@ -434,6 +458,15 @@ theorem compute_reachability_renameLoc (π : Equiv.Perm Nat) (h : Heap)
   | cabs => simp only [Exp.renameLoc, compute_reachability, expand_captures_renameLoc]
   | consumer => simp only [Exp.renameLoc, compute_reachability, expand_captures_renameLoc]
   | boxed => simp only [Exp.renameLoc, compute_reachability, expand_captures_renameLoc]
+  | arr =>
+    rename_i xs
+    simp only [Exp.renameLoc, compute_reachability]
+    rw [← CaptureSet.ofVars_renameLoc, expand_captures_renameLoc]
+  | pair =>
+    rename_i x y
+    simp only [Exp.renameLoc, compute_reachability]
+    rw [show [x.renameLoc π, y.renameLoc π] = [x, y].map (·.renameLoc π) from rfl,
+      ← CaptureSet.ofVars_renameLoc, expand_captures_renameLoc]
   | unit => rfl
   | btrue => rfl
   | bfalse => rfl
@@ -576,6 +609,8 @@ theorem Ty.subst_renameLoc (π : Equiv.Perm Nat) {sort : TySort} {s1 s2 : Sig}
       ModalCtx.subst_renameLoc, ih]
   | cap _ => simp only [Ty.subst, Ty.renameLoc, CaptureSet.subst_renameLoc]
   | cell _ _ ih => simp only [Ty.subst, Ty.renameLoc, CaptureSet.subst_renameLoc, ih]
+  | arr _ _ ih => simp only [Ty.subst, Ty.renameLoc, CaptureSet.subst_renameLoc, ih]
+  | pair _ _ _ ih1 ih2 => simp only [Ty.subst, Ty.renameLoc, CaptureSet.subst_renameLoc, ih1, ih2]
   | reader _ _ ih => simp only [Ty.subst, Ty.renameLoc, CaptureSet.subst_renameLoc, ih]
   | exi _ _ ih =>
     simp only [Ty.subst, Ty.renameLoc, ih, ← Subst.liftCVars_renameLoc]
@@ -641,6 +676,13 @@ theorem Exp.subst_renameLoc (π : Equiv.Perm Nat) {s1 s2 : Sig}
   | bfalse => rfl
   | read x => simp only [Exp.subst, Exp.renameLoc, Var.subst_renameLoc]
   | write x y => simp only [Exp.subst, Exp.renameLoc, Var.subst_renameLoc]
+  | idx x n d => simp only [Exp.subst, Exp.renameLoc, Var.subst_renameLoc]
+  | concat x y => simp only [Exp.subst, Exp.renameLoc, Var.subst_renameLoc]
+  | split x n => simp only [Exp.subst, Exp.renameLoc, Var.subst_renameLoc]
+  | pair x y => simp only [Exp.subst, Exp.renameLoc, Var.subst_renameLoc]
+  | fst x => simp only [Exp.subst, Exp.renameLoc, Var.subst_renameLoc]
+  | snd x => simp only [Exp.subst, Exp.renameLoc, Var.subst_renameLoc]
+  | arr xs => simp only [Exp.subst, Exp.renameLoc, Var.subst_renameLoc, List.map_map, Function.comp_def, List.map_id']
   | cond x _ _ ih1 ih2 =>
     simp only [Exp.subst, Exp.renameLoc, Var.subst_renameLoc, ih1, ih2]
   | par _ _ _ _ ih1 ih2 =>
@@ -787,6 +829,8 @@ theorem Ty.WfInHeap.renameLoc {T : Ty sort s} {h : Heap} (hwf : T.WfInHeap h)
   | wf_cap hcs => exact .wf_cap (hcs.renameLoc π)
   | wf_cell hcs _ ih => exact .wf_cell (hcs.renameLoc π) ih
   | wf_reader hcs _ ih => exact .wf_reader (hcs.renameLoc π) ih
+  | wf_arr hcs _ ih => exact .wf_arr (hcs.renameLoc π) ih
+  | wf_pair hcs _ _ ih1 ih2 => exact .wf_pair (hcs.renameLoc π) ih1 ih2
   | wf_exi _ ih => exact .wf_exi ih
   | wf_typ _ ih => exact .wf_typ ih
 
@@ -826,6 +870,17 @@ theorem Exp.WfInHeap.renameLoc {e : Exp s} {h : Heap} (hwf : e.WfInHeap h)
   | wf_bfalse => exact .wf_bfalse
   | wf_read hx => exact .wf_read (hx.renameLoc π)
   | wf_write hx hy => exact .wf_write (hx.renameLoc π) (hy.renameLoc π)
+  | wf_arr hxs =>
+    refine .wf_arr ?_
+    intro x hx
+    obtain ⟨x0, hx0, rfl⟩ := List.mem_map.mp hx
+    exact (hxs x0 hx0).renameLoc π
+  | wf_idx hx hd => exact .wf_idx (hx.renameLoc π) (hd.renameLoc π)
+  | wf_concat hx hy => exact .wf_concat (hx.renameLoc π) (hy.renameLoc π)
+  | wf_split hx => exact .wf_split (hx.renameLoc π)
+  | wf_pair hx hy => exact .wf_pair (hx.renameLoc π) (hy.renameLoc π)
+  | wf_fst hx => exact .wf_fst (hx.renameLoc π)
+  | wf_snd hx => exact .wf_snd (hx.renameLoc π)
   | wf_cond hx _ _ ih2 ih3 => exact .wf_cond (hx.renameLoc π) ih2 ih3
   | wf_par hC1 hC2 _ _ ih1 ih2 => exact .wf_par (hC1.renameLoc π) (hC2.renameLoc π) ih1 ih2
 
@@ -1013,6 +1068,8 @@ theorem Ty.renameLoc_id {T : Ty sort s} : T.renameLoc (Equiv.refl Nat) = T := by
     simp only [Ty.renameLoc, CaptureSet.renameLoc_id, ModalCtx.renameLoc_id, ih]
   | cap _ => simp only [Ty.renameLoc, CaptureSet.renameLoc_id]
   | cell _ _ ih => simp only [Ty.renameLoc, CaptureSet.renameLoc_id, ih]
+  | arr _ _ ih => simp only [Ty.renameLoc, CaptureSet.renameLoc_id, ih]
+  | pair _ _ _ ih1 ih2 => simp only [Ty.renameLoc, CaptureSet.renameLoc_id, ih1, ih2]
   | reader _ _ ih => simp only [Ty.renameLoc, CaptureSet.renameLoc_id, ih]
   | exi _ _ ih => simp only [Ty.renameLoc, ih]
   | typ _ ih => simp only [Ty.renameLoc, ih]
@@ -1053,6 +1110,13 @@ theorem Exp.renameLoc_id {e : Exp s} : e.renameLoc (Equiv.refl Nat) = e := by
   | bfalse => rfl
   | read x => simp only [Exp.renameLoc, Var.renameLoc_id]
   | write x y => simp only [Exp.renameLoc, Var.renameLoc_id]
+  | idx x n d => simp only [Exp.renameLoc, Var.renameLoc_id]
+  | concat x y => simp only [Exp.renameLoc, Var.renameLoc_id]
+  | split x n => simp only [Exp.renameLoc, Var.renameLoc_id]
+  | pair x y => simp only [Exp.renameLoc, Var.renameLoc_id]
+  | fst x => simp only [Exp.renameLoc, Var.renameLoc_id]
+  | snd x => simp only [Exp.renameLoc, Var.renameLoc_id]
+  | arr xs => simp only [Exp.renameLoc, Var.renameLoc_id, List.map_map, Function.comp_def, List.map_id']
   | cond x _ _ ih1 ih2 => simp only [Exp.renameLoc, Var.renameLoc_id, ih1, ih2]
   | par _ _ _ _ ih1 ih2 => simp only [Exp.renameLoc, CaptureSet.renameLoc_id, ih1, ih2]
 
@@ -1141,6 +1205,8 @@ theorem Ty.renameLoc_comp {T : Ty sort s} {π ρ : Equiv.Perm Nat} :
     simp only [Ty.renameLoc, CaptureSet.renameLoc_comp, ModalCtx.renameLoc_comp, ih]
   | cap _ => simp only [Ty.renameLoc, CaptureSet.renameLoc_comp]
   | cell _ _ ih => simp only [Ty.renameLoc, CaptureSet.renameLoc_comp, ih]
+  | arr _ _ ih => simp only [Ty.renameLoc, CaptureSet.renameLoc_comp, ih]
+  | pair _ _ _ ih1 ih2 => simp only [Ty.renameLoc, CaptureSet.renameLoc_comp, ih1, ih2]
   | reader _ _ ih => simp only [Ty.renameLoc, CaptureSet.renameLoc_comp, ih]
   | exi _ _ ih => simp only [Ty.renameLoc, ih]
   | typ _ ih => simp only [Ty.renameLoc, ih]
@@ -1183,6 +1249,13 @@ theorem Exp.renameLoc_comp {e : Exp s} {π ρ : Equiv.Perm Nat} :
   | bfalse => rfl
   | read x => simp only [Exp.renameLoc, Var.renameLoc_comp]
   | write x y => simp only [Exp.renameLoc, Var.renameLoc_comp]
+  | idx x n d => simp only [Exp.renameLoc, Var.renameLoc_comp]
+  | concat x y => simp only [Exp.renameLoc, Var.renameLoc_comp]
+  | split x n => simp only [Exp.renameLoc, Var.renameLoc_comp]
+  | pair x y => simp only [Exp.renameLoc, Var.renameLoc_comp]
+  | fst x => simp only [Exp.renameLoc, Var.renameLoc_comp]
+  | snd x => simp only [Exp.renameLoc, Var.renameLoc_comp]
+  | arr xs => simp only [Exp.renameLoc, Var.renameLoc_comp, List.map_map, Function.comp_def, List.map_id']
   | cond x _ _ ih1 ih2 => simp only [Exp.renameLoc, Var.renameLoc_comp, ih1, ih2]
   | par _ _ _ _ ih1 ih2 => simp only [Exp.renameLoc, CaptureSet.renameLoc_comp, ih1, ih2]
 
@@ -1526,6 +1599,32 @@ theorem resolve_renameLoc (π : Equiv.Perm Nat) (h : Heap) (e : Exp {}) :
         | masked => rfl
   | _ => rfl
 
+/-! ### Arrays, split and pairs under location renaming -/
+
+theorem Memory.lookup_arr_renameLoc {m : Memory} {x : Nat} {ls : List Nat} {R : CapabilitySet}
+    (h : m.lookup x = some (.val ⟨.arr (ls.map Var.free), .arr, R⟩)) (π : Equiv.Perm Nat) :
+    (m.renameLoc π).lookup (π x)
+      = some (.val ⟨.arr ((ls.map π).map Var.free), .arr, R.renameLoc π⟩) := by
+  have h' := Memory.lookup_val_renameLoc h π
+  rw [h']
+  simp only [HeapVal.renameLoc, Exp.renameLoc, List.map_map, Function.comp_def, Var.renameLoc]
+
+theorem List.getD_map_apply {α β : Type} (f : α → β) (l : List α) (n : Nat) (d : α) :
+    (l.map f).getD n (f d) = f (l.getD n d) := by
+  induction l generalizing n with
+  | nil => rfl
+  | cons a l ih => cases n <;> simp_all
+
+theorem Exp.splitExp_renameLoc (π : Equiv.Perm Nat) (ls : List Nat) (n : Nat) :
+    (Exp.splitExp ls n).renameLoc π = Exp.splitExp (ls.map π) n := by
+  simp only [Exp.splitExp, Exp.renameLoc, Var.renameLoc, List.map_map, Function.comp_def,
+    ← List.map_take, ← List.map_drop]
+  congr 4
+  apply List.Vector.toList_injective
+  simp only [List.Vector.toList_map, List.Vector.toList_mk, List.map_cons, List.map_nil,
+    CaptureSet.ofVars_renameLoc, List.map_map, Function.comp_def, Var.renameLoc]
+  rfl
+
 /-- A single step is equivariant. -/
 theorem Step.renameLoc {t : Trace} {m m' : Memory} {e e' : Exp {}}
     (hstep : Step t m e m' e') (π : Equiv.Perm Nat) :
@@ -1549,6 +1648,23 @@ theorem Step.renameLoc {t : Trace} {m m' : Memory} {e e' : Exp {}}
     exact Step.step_consumer_app (by rw [Memory.lookup_renameLoc, hlk]; rfl)
   | step_unwrap hlk =>
     exact Step.step_unwrap (by rw [Memory.lookup_renameLoc, hlk]; rfl)
+  | step_idx hlk hd =>
+    have hd' := Memory.heap_ne_none_renameLoc hd π
+    simp only [Exp.renameLoc, Var.renameLoc]
+    rw [← List.getD_map_apply (⇑π)]
+    exact Step.step_idx (Memory.lookup_arr_renameLoc hlk π) hd'
+  | step_concat hx hy =>
+    have h := Step.step_concat (Memory.lookup_arr_renameLoc hx π) (Memory.lookup_arr_renameLoc hy π)
+    simpa only [Exp.renameLoc, Var.renameLoc, List.map_map, Function.comp_def,
+      List.map_append] using h
+  | step_split hlk =>
+    simp only [Exp.renameLoc, Var.renameLoc]
+    rw [Exp.splitExp_renameLoc]
+    exact Step.step_split (Memory.lookup_arr_renameLoc hlk π)
+  | step_fst hlk =>
+    exact Step.step_fst (by rw [Memory.lookup_renameLoc, hlk]; rfl)
+  | step_snd hlk =>
+    exact Step.step_snd (by rw [Memory.lookup_renameLoc, hlk]; rfl)
   | step_cond_var_true hlk =>
     exact Step.step_cond_var_true (by rw [Memory.lookup_renameLoc, hlk]; rfl)
   | step_cond_var_false hlk =>
@@ -1645,6 +1761,23 @@ theorem SeqStep.renameLoc {t : Trace} {m m' : Memory} {e e' : Exp {}}
     exact SeqStep.step_consumer_app (by rw [Memory.lookup_renameLoc, hlk]; rfl)
   | step_unwrap hlk =>
     exact SeqStep.step_unwrap (by rw [Memory.lookup_renameLoc, hlk]; rfl)
+  | step_idx hlk hd =>
+    have hd' := Memory.heap_ne_none_renameLoc hd π
+    simp only [Exp.renameLoc, Var.renameLoc]
+    rw [← List.getD_map_apply (⇑π)]
+    exact SeqStep.step_idx (Memory.lookup_arr_renameLoc hlk π) hd'
+  | step_concat hx hy =>
+    have h := SeqStep.step_concat (Memory.lookup_arr_renameLoc hx π) (Memory.lookup_arr_renameLoc hy π)
+    simpa only [Exp.renameLoc, Var.renameLoc, List.map_map, Function.comp_def,
+      List.map_append] using h
+  | step_split hlk =>
+    simp only [Exp.renameLoc, Var.renameLoc]
+    rw [Exp.splitExp_renameLoc]
+    exact SeqStep.step_split (Memory.lookup_arr_renameLoc hlk π)
+  | step_fst hlk =>
+    exact SeqStep.step_fst (by rw [Memory.lookup_renameLoc, hlk]; rfl)
+  | step_snd hlk =>
+    exact SeqStep.step_snd (by rw [Memory.lookup_renameLoc, hlk]; rfl)
   | step_cond_var_true hlk =>
     exact SeqStep.step_cond_var_true (by rw [Memory.lookup_renameLoc, hlk]; rfl)
   | step_cond_var_false hlk =>
@@ -1738,6 +1871,24 @@ theorem BigStep.renameLoc {t : Trace} {m m' : Memory} {e v : Exp {}}
   | bs_wrap => exact BigStep.bs_wrap
   | bs_unwrap hlk _ ih =>
     exact BigStep.bs_unwrap (by rw [Memory.lookup_renameLoc, hlk]; rfl) ih
+  | bs_idx hlk hd =>
+    have hd' := Memory.heap_ne_none_renameLoc hd π
+    simp only [Exp.renameLoc, Var.renameLoc]
+    rw [← List.getD_map_apply (⇑π)]
+    exact BigStep.bs_idx (Memory.lookup_arr_renameLoc hlk π) hd'
+  | bs_concat hx hy =>
+    have h := BigStep.bs_concat (Memory.lookup_arr_renameLoc hx π)
+      (Memory.lookup_arr_renameLoc hy π)
+    simpa only [Exp.renameLoc, Var.renameLoc, List.map_map, Function.comp_def,
+      List.map_append] using h
+  | bs_split hlk _ ih =>
+    simp only [Exp.renameLoc, Var.renameLoc]
+    rw [Exp.splitExp_renameLoc] at ih
+    exact BigStep.bs_split (Memory.lookup_arr_renameLoc hlk π) ih
+  | bs_fst hlk =>
+    exact BigStep.bs_fst (by rw [Memory.lookup_renameLoc, hlk]; rfl)
+  | bs_snd hlk =>
+    exact BigStep.bs_snd (by rw [Memory.lookup_renameLoc, hlk]; rfl)
   | bs_letin_val hbs1 hvsimple hwf hfresh _ ih1 ih2 =>
     rw [Trace.renameLoc_append]
     refine BigStep.bs_letin_val ih1 (hvsimple.renameLoc π) (hwf.renameLoc π)
