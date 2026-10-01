@@ -513,6 +513,7 @@ inductive HasType : CaptureSet s -> Ctx s -> Exp s -> Ty .exi s -> Prop where
   ------------------------------------------------
   HasType (.var (.M .epsilon) x) Γ (.app x y) (.typ .unit)
 | arr {xs : List (Var .var s)} {T : Ty .capt s} {Cs : Var .var s → CaptureSet s} :
+  T.IsClosed ->
   -- every element is a cell holding `T`
   (∀ x ∈ xs, HasType {} Γ (.var x) (.typ (.cell (Cs x) T))) ->
   -- the elements are pairwise separated, hence denote distinct cells

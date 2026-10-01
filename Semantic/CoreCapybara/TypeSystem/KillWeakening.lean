@@ -98,6 +98,8 @@ def Ty.eraseCVars : Ty sort s -> CaptureSet s -> Ty sort s
 | .bool, _ => .bool
 | .cell cs T, K => .cell (cs.eraseCVars K) (T.eraseCVars K)
 | .reader cs T, K => .reader (cs.eraseCVars K) (T.eraseCVars K)
+| .arr cs T, K => .arr (cs.eraseCVars K) (T.eraseCVars K)
+| .pair cs T1 T2, K => .pair (cs.eraseCVars K) (T1.eraseCVars K) (T2.eraseCVars K)
 | .exi n T, K => .exi n (T.eraseCVars (K.rename (Rename.weakenCVars n)))
 | .typ T, K => .typ (T.eraseCVars K)
 
@@ -165,6 +167,13 @@ def Exp.eraseCVars : Exp s -> CaptureSet s -> Exp s
 | .bfalse, _ => .bfalse
 | .read x, _ => .read x
 | .write x y, _ => .write x y
+| .arr xs, _ => .arr xs
+| .idx x n d, _ => .idx x n d
+| .concat x y, _ => .concat x y
+| .split x n, _ => .split x n
+| .pair x y, _ => .pair x y
+| .fst x, _ => .fst x
+| .snd x, _ => .snd x
 | .cond x e2 e3, K => .cond x (e2.eraseCVars K) (e3.eraseCVars K)
 | .par C1 C2 e1 e2, K =>
     .par (C1.eraseCVars K) (C2.eraseCVars K) (e1.eraseCVars K) (e2.eraseCVars K)
@@ -392,6 +401,8 @@ theorem Ty.IsClosed.eraseCVars {T : Ty sort s} (h : T.IsClosed) (K : CaptureSet 
   | bool => exact .bool
   | cell hcs _ ih => exact .cell (hcs.eraseCVars K) (ih K)
   | reader hcs _ ih => exact .reader (hcs.eraseCVars K) (ih K)
+  | arr hcs _ ih => exact .arr (hcs.eraseCVars K) (ih K)
+  | pair hcs _ _ ih1 ih2 => exact .pair (hcs.eraseCVars K) (ih1 K) (ih2 K)
   | exi _ ih => exact .exi (ih _)
   | typ _ ih => exact .typ (ih K)
 
@@ -588,6 +599,10 @@ theorem Ty.eraseCVars_rename {T : Ty sort s1} {K : CaptureSet s1} {ρ : Rename s
       ModalCtx.eraseCVars_rename hρ, ih hρ]
   | cell cs T ih =>
     simp only [Ty.rename, Ty.eraseCVars, CaptureSet.eraseCVars_rename hρ, ih hρ]
+  | arr cs T ih =>
+    simp only [Ty.rename, Ty.eraseCVars, CaptureSet.eraseCVars_rename hρ, ih hρ]
+  | pair cs T1 T2 ih1 ih2 =>
+    simp only [Ty.rename, Ty.eraseCVars, CaptureSet.eraseCVars_rename hρ, ih1 hρ, ih2 hρ]
   | reader cs T ih =>
     simp only [Ty.rename, Ty.eraseCVars, CaptureSet.eraseCVars_rename hρ, ih hρ]
   | exi n T ih =>
@@ -621,6 +636,13 @@ theorem Exp.eraseCVars_rename {e : Exp s1} {K : CaptureSet s1} {ρ : Rename s1 s
   | bfalse => rfl
   | read x => rfl
   | write x y => rfl
+  | arr xs => rfl
+  | idx x n d => rfl
+  | concat x y => rfl
+  | split x n => rfl
+  | pair x y => rfl
+  | fst x => rfl
+  | snd x => rfl
   | abs cs T e ih =>
     have hbody : (e.rename ρ.lift).eraseCVars ((K.rename ρ).rename (Rename.succ (k := .var)))
         = (e.eraseCVars (K.rename (Rename.succ (k := .var)))).rename ρ.lift := by
@@ -939,6 +961,10 @@ theorem Ty.eraseCVars_rename_congr {T : Ty sort s1} {ρ : Rename s1 s2}
       ModalCtx.eraseCVars_rename_congr h, ih h]
   | cell cs T ih =>
     simp only [Ty.rename, Ty.eraseCVars, CaptureSet.eraseCVars_rename_congr h, ih h]
+  | arr cs T ih =>
+    simp only [Ty.rename, Ty.eraseCVars, CaptureSet.eraseCVars_rename_congr h, ih h]
+  | pair cs T1 T2 ih1 ih2 =>
+    simp only [Ty.rename, Ty.eraseCVars, CaptureSet.eraseCVars_rename_congr h, ih1 h, ih2 h]
   | reader cs T ih =>
     simp only [Ty.rename, Ty.eraseCVars, CaptureSet.eraseCVars_rename_congr h, ih h]
   | exi n T ih =>
@@ -1271,6 +1297,12 @@ theorem Ty.eraseCVars_subst_compatible {T : Ty sort s1} {σ σe : Subst s1 s2}
   | cell C T ih =>
     simp only [Ty.subst, Ty.eraseCVars, CaptureSet.eraseCVars_subst_compatible hvar hcvar,
       ih hvar htvar hcvar]
+  | arr C T ih =>
+    simp only [Ty.subst, Ty.eraseCVars, CaptureSet.eraseCVars_subst_compatible hvar hcvar,
+      ih hvar htvar hcvar]
+  | pair C T1 T2 ih1 ih2 =>
+    simp only [Ty.subst, Ty.eraseCVars, CaptureSet.eraseCVars_subst_compatible hvar hcvar,
+      ih1 hvar htvar hcvar, ih2 hvar htvar hcvar]
   | reader C T ih =>
     simp only [Ty.subst, Ty.eraseCVars, CaptureSet.eraseCVars_subst_compatible hvar hcvar,
       ih hvar htvar hcvar]
@@ -2672,6 +2704,30 @@ private theorem Ctx.erase_kill_unpack_body {s : Sig} {Γ : Ctx s}
           (Rename.succ (k := .lock))) := by
           rw [Ctx.erase_kill_consumed_base, hmodal]
 
+theorem CaptureSet.eraseCVars_ofVars {xs : List (Var .var s)} {K : CaptureSet s} :
+    (CaptureSet.ofVars xs).eraseCVars K = CaptureSet.ofVars xs := by
+  induction xs with
+  | nil => rfl
+  | cons x xs ih => simp only [CaptureSet.ofVars, CaptureSet.eraseCVars, ih]; rfl
+
+theorem CaptureSet.mentionsCVar_rename_weaken2 {K : CaptureSet s} :
+    (K.rename (Rename.weakenCVars 2)).mentionsCVar .here = false ∧
+    (K.rename (Rename.weakenCVars 2)).mentionsCVar (.there .here) = false := by
+  induction K with
+  | empty => exact ⟨rfl, rfl⟩
+  | union K1 K2 ih1 ih2 =>
+    simp [CaptureSet.rename, CaptureSet.mentionsCVar, ih1.1, ih1.2, ih2.1, ih2.2]
+  | var m x => exact ⟨rfl, rfl⟩
+  | cvar m c => exact ⟨rfl, rfl⟩
+
+theorem Ty.splitBody_eraseCVars {C : CaptureSet s} {T : Ty .capt s} {K : CaptureSet s} :
+    (Ty.splitBody C T).eraseCVars (K.rename (Rename.weakenCVars 2))
+      = Ty.splitBody (C.eraseCVars K) (T.eraseCVars K) := by
+  obtain ⟨h0, h1⟩ := CaptureSet.mentionsCVar_rename_weaken2 (K := K)
+  simp only [Ty.splitBody, Ty.eraseCVars, CaptureSet.eraseCVars,
+    Ty.eraseCVars_rename Rename.weakenCVars_cvarInjective, h0, h1]
+  rfl
+
 theorem HasType.erase_kill {s : Sig} {C : CaptureSet s} {Γ : Ctx s} {e : Exp s} {E : Ty .exi s}
     (h : HasType C Γ e E) (K : CaptureSet s) :
     HasType (C.eraseCVars K) ((Γ.eraseCVars K).kill_peaks_cs K)
@@ -3016,6 +3072,46 @@ theorem HasType.erase_kill {s : Sig} {C : CaptureSet s} {Γ : Ctx s} {e : Exp s}
     simp only [CaptureSet.eraseCVars_var, Exp.eraseCVars, Ty.eraseCVars] at hx' hy' ⊢
     exact .invoke (by simpa only [CaptureSet.eraseCVars_var] using hacc.eraseCVars (K := K))
       hx' hy'
+  | @arr s0 Γ0 xs T Cs hT hcells hsep ih =>
+    simp only [Exp.eraseCVars, Ty.eraseCVars, CaptureSet.eraseCVars_ofVars]
+    refine HasType.arr (Cs := fun x => (Cs x).eraseCVars K) (hT.eraseCVars K) ?_ ?_
+    · intro x hx
+      have h' := ih x hx K
+      simpa only [Exp.eraseCVars, Ty.eraseCVars] using h'
+    · exact hsep.imp (fun h => by simpa only [CaptureSet.eraseCVars_var] using h.erase_kill K)
+  | idx hx hd ihx ihd =>
+    have hx' := ihx K
+    have hd' := ihd K
+    simp only [CaptureSet.eraseCVars_var, CaptureSet.eraseCVars, Exp.eraseCVars,
+      Ty.eraseCVars] at hx' hd' ⊢
+    exact .idx hx' hd'
+  | concat hx hy hsep ihx ihy =>
+    have hx' := ihx K
+    have hy' := ihy K
+    simp only [CaptureSet.eraseCVars_var, CaptureSet.eraseCVars, Exp.eraseCVars,
+      Ty.eraseCVars] at hx' hy' ⊢
+    exact .concat hx' hy' (by simpa only [CaptureSet.eraseCVars_var] using hsep.erase_kill K)
+  | split hΓ hdrop hx ih =>
+    have hx' := ih K
+    simp only [CaptureSet.eraseCVars_var, CaptureSet.eraseCVars, Exp.eraseCVars,
+      Ty.eraseCVars] at hx' ⊢
+    rw [Ty.splitBody_eraseCVars]
+    exact .split (Ctx.kill_peaks_cs_isClosed (hΓ.eraseCVars K))
+      (by simpa only [CaptureSet.eraseCVars_var] using hdrop.eraseCVars (K := K)) hx'
+  | pair hx hy ihx ihy =>
+    have hx' := ihx K
+    have hy' := ihy K
+    simp only [Exp.eraseCVars, Ty.eraseCVars, CaptureSet.eraseCVars] at hx' hy' ⊢
+    rw [← Ty.captureSet_eraseCVars, ← Ty.captureSet_eraseCVars]
+    exact .pair hx' hy'
+  | fst hx ih =>
+    have hx' := ih K
+    simp only [Exp.eraseCVars, Ty.eraseCVars] at hx' ⊢
+    exact .fst hx'
+  | snd hx ih =>
+    have hx' := ih K
+    simp only [Exp.eraseCVars, Ty.eraseCVars] at hx' ⊢
+    exact .snd hx'
   | subtyp hty hsc hsub hC hE ih =>
     exact .subtyp (ih K) (hsc.erase_kill K) (hsub.erase_kill K)
       (hC.eraseCVars K) (hE.eraseCVars K)

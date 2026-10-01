@@ -183,7 +183,13 @@ theorem Ty.refineCaptureSet_closed {T : Ty .capt s} {cs : CaptureSet s} :
   | bool => exact IsClosed.bool
   | cell _ hT => exact IsClosed.cell hcs hT
   | reader _ hT => exact IsClosed.reader hcs hT
+  | arr _ hT => exact IsClosed.arr hcs hT
+  | pair _ h1 h2 => exact IsClosed.pair hcs h1 h2
 
+/-- The capture set of a closed capturing type is closed. -/
+theorem Ty.captureSet_closed_of_closed {T : Ty .capt s} (hT : T.IsClosed) :
+    T.captureSet.IsClosed := by
+  cases hT <;> first | exact CaptureSet.IsClosed.empty | assumption
 theorem Ty.rename_closed {T : Ty sort s1} {f : Rename s1 s2} :
     T.IsClosed -> (T.rename f).IsClosed := by
   intro h
@@ -221,6 +227,12 @@ theorem Ty.rename_closed {T : Ty sort s1} {f : Rename s1 s2} :
   case reader cs T ihT =>
     cases h with | reader hcs hT =>
     exact IsClosed.reader (CaptureSet.rename_closed hcs) (ihT hT)
+  case arr cs T ihT =>
+    cases h with | arr hcs hT =>
+    exact IsClosed.arr (CaptureSet.rename_closed hcs) (ihT hT)
+  case pair cs T1 T2 ih1 ih2 =>
+    cases h with | pair hcs h1 h2 =>
+    exact IsClosed.pair (CaptureSet.rename_closed hcs) (ih1 h1) (ih2 h2)
   case typ T ih =>
     cases h with | typ hT =>
     exact IsClosed.typ (ih hT)
@@ -274,6 +286,14 @@ theorem Ty.rename_closed_inv {T : Ty sort s1} {f : Rename s1 s2} :
     simp only [Ty.rename] at h
     cases h with | reader hcs hT =>
     exact IsClosed.reader (CaptureSet.rename_closed_inv hcs) (ihT hT)
+  case arr cs T ihT =>
+    simp only [Ty.rename] at h
+    cases h with | arr hcs hT =>
+    exact IsClosed.arr (CaptureSet.rename_closed_inv hcs) (ihT hT)
+  case pair cs T1 T2 ih1 ih2 =>
+    simp only [Ty.rename] at h
+    cases h with | pair hcs h1 h2 =>
+    exact IsClosed.pair (CaptureSet.rename_closed_inv hcs) (ih1 h1) (ih2 h2)
   case typ T ih =>
     simp only [Ty.rename] at h
     cases h; rename_i hT
@@ -365,6 +385,15 @@ theorem HasType.use_set_is_closed
     exact CaptureSet.IsClosed.union (CaptureSet.IsClosed.union ih1 ih2) ih3
   | par _ _ _ ih1 ih2 => exact CaptureSet.IsClosed.union ih1 ih2
   | invoke _ ht_x _ _ _ => exact HasType.typed_var_capture_closed ht_x
+  | arr => exact CaptureSet.IsClosed.empty
+  | idx => exact CaptureSet.IsClosed.empty
+  | concat => exact CaptureSet.IsClosed.empty
+  | split _ _ ht_x _ =>
+    exact CaptureSet.IsClosed.union (HasType.typed_var_capture_closed ht_x)
+      (HasType.typed_var_capture_closed ht_x)
+  | pair => exact CaptureSet.IsClosed.empty
+  | fst => exact CaptureSet.IsClosed.empty
+  | snd => exact CaptureSet.IsClosed.empty
   | subtyp _ _ _ hC _ _ => exact hC
 
 theorem HasType.exp_is_closed
@@ -477,6 +506,26 @@ theorem HasType.exp_is_closed
     constructor
     · cases ih_x; assumption
     · cases ih_y; assumption
+  case arr ih =>
+    exact Exp.IsClosed.arr (fun x hx => by cases ih x hx; assumption)
+  case idx ih_x ih_d =>
+    cases ih_x; cases ih_d
+    exact Exp.IsClosed.idx (by assumption) (by assumption)
+  case concat ih_x ih_y =>
+    cases ih_x; cases ih_y
+    exact Exp.IsClosed.concat (by assumption) (by assumption)
+  case split ih_x =>
+    cases ih_x
+    exact Exp.IsClosed.split (by assumption)
+  case pair ih_x ih_y =>
+    cases ih_x; cases ih_y
+    exact Exp.IsClosed.pair (by assumption) (by assumption)
+  case fst ih_x =>
+    cases ih_x
+    exact Exp.IsClosed.fst (by assumption)
+  case snd ih_x =>
+    cases ih_x
+    exact Exp.IsClosed.snd (by assumption)
   case unpack =>
     -- The continuation IH is over `u.rename ((Rename.succ (k := .lock)).lift)`
     -- (the manufactured-lock slot), so peel that weakening back off before
@@ -486,10 +535,53 @@ theorem HasType.exp_is_closed
     · apply Exp.rename_closed_inv
       assumption
 
+theorem CaptureSet.ofVars_closed {xs : List (Var .var s)}
+    (h : ∀ x ∈ xs, x.IsClosed) : (CaptureSet.ofVars xs).IsClosed := by
+  induction xs with
+  | nil => exact CaptureSet.IsClosed.empty
+  | cons x xs ih =>
+    refine CaptureSet.IsClosed.union ?_ (ih (fun y hy => h y (List.mem_cons_of_mem _ hy)))
+    cases h x List.mem_cons_self
+    exact CaptureSet.IsClosed.var_bound
+
 theorem HasType.type_is_closed
   (ht : HasType C Γ e E) :
   E.IsClosed := by
-  induction ht <;>
+  induction ht
+  case arr hT hcells _ _ =>
+    refine Ty.IsClosed.typ (Ty.IsClosed.arr (CaptureSet.ofVars_closed ?_) hT)
+    intro x hx
+    exact HasType.typed_var_closed (hcells x hx)
+  case idx ht_x ht_d _ ih_d =>
+    cases ih_d with | typ h => cases h with | cell _ hT =>
+    exact Ty.IsClosed.typ (Ty.IsClosed.cell
+      (CaptureSet.IsClosed.union (HasType.typed_var_capture_closed ht_x)
+        (HasType.typed_var_capture_closed ht_d)) hT)
+  case concat ht_x ht_y _ ih_x _ =>
+    cases ih_x with | typ h => cases h with | arr _ hT =>
+    exact Ty.IsClosed.typ (Ty.IsClosed.arr
+      (CaptureSet.IsClosed.union (HasType.typed_var_capture_closed ht_x)
+        (HasType.typed_var_capture_closed ht_y)) hT)
+  case split ih_x =>
+    cases ih_x with | typ h => cases h with | arr _ hT =>
+    have hT' := Ty.rename_closed (f := Rename.weakenCVars 2) hT
+    exact Ty.IsClosed.exi (Ty.IsClosed.pair
+      (CaptureSet.IsClosed.union CaptureSet.IsClosed.cvar CaptureSet.IsClosed.cvar)
+      (Ty.IsClosed.arr CaptureSet.IsClosed.cvar hT')
+      (Ty.IsClosed.arr CaptureSet.IsClosed.cvar hT'))
+  case pair ih_x ih_y =>
+    cases ih_x with | typ h1 =>
+    cases ih_y with | typ h2 =>
+    exact Ty.IsClosed.typ (Ty.IsClosed.pair
+      (CaptureSet.IsClosed.union (Ty.captureSet_closed_of_closed h1)
+        (Ty.captureSet_closed_of_closed h2)) h1 h2)
+  case fst ih =>
+    cases ih with | typ h => cases h with | pair _ h1 _ =>
+    exact Ty.IsClosed.typ h1
+  case snd ih =>
+    cases ih with | typ h => cases h with | pair _ _ h2 =>
+    exact Ty.IsClosed.typ h2
+  all_goals
     try (solve | assumption | constructor | grind only [Ty.IsClosed])
   case var hΓ_closed hlookup =>
     constructor
