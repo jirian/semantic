@@ -1202,6 +1202,8 @@ theorem Exp.IsSimpleVal.to_IsVal {e : Exp s} (h : e.IsSimpleVal) : e.IsVal :=
   | .unit, .unit => .unit
   | .btrue, .btrue => .btrue
   | .bfalse, .bfalse => .bfalse
+  | .arr _, .arr => .arr
+  | .pair _ _, .pair => .pair
 
 inductive Liveness : Type where
 | live : Liveness
@@ -1474,6 +1476,15 @@ inductive Ty.WfInHeap : Ty sort s -> Heap -> Prop where
   CaptureSet.WfInHeap cs H ->
   Ty.WfInHeap T H ->
   Ty.WfInHeap (.reader cs T) H
+| wf_arr :
+  CaptureSet.WfInHeap cs H ->
+  Ty.WfInHeap T H ->
+  Ty.WfInHeap (.arr cs T) H
+| wf_pair :
+  CaptureSet.WfInHeap cs H ->
+  Ty.WfInHeap T1 H ->
+  Ty.WfInHeap T2 H ->
+  Ty.WfInHeap (.pair cs T1 T2) H
 -- Existential types
 | wf_exi {s : Sig} {n : Nat} {T : Ty .capt (s.extendCVars n)} {H : Heap} :
   Ty.WfInHeap T H ->
@@ -1578,6 +1589,30 @@ inductive Exp.WfInHeap : Exp s -> Heap -> Prop where
   Exp.WfInHeap e1 H ->
   Exp.WfInHeap e2 H ->
   Exp.WfInHeap (.par C1 C2 e1 e2) H
+| wf_arr :
+  (∀ x ∈ xs, Var.WfInHeap x H) ->
+  Exp.WfInHeap (.arr xs) H
+| wf_idx :
+  Var.WfInHeap x H ->
+  Var.WfInHeap d H ->
+  Exp.WfInHeap (.idx x n d) H
+| wf_concat :
+  Var.WfInHeap x H ->
+  Var.WfInHeap y H ->
+  Exp.WfInHeap (.concat x y) H
+| wf_split :
+  Var.WfInHeap x H ->
+  Exp.WfInHeap (.split x n) H
+| wf_pair :
+  Var.WfInHeap x H ->
+  Var.WfInHeap y H ->
+  Exp.WfInHeap (.pair x y) H
+| wf_fst :
+  Var.WfInHeap x H ->
+  Exp.WfInHeap (.fst x) H
+| wf_snd :
+  Var.WfInHeap x H ->
+  Exp.WfInHeap (.snd x) H
 
 -- Closedness implies well-formedness in any heap
 
@@ -1648,6 +1683,8 @@ theorem Ty.wf_of_closed {T : Ty sort s} {H : Heap}
   | cap hcs => exact Ty.WfInHeap.wf_cap (CaptureSet.wf_of_closed hcs)
   | cell hcs _ ih => exact Ty.WfInHeap.wf_cell (CaptureSet.wf_of_closed hcs) ih
   | reader hcs _ ih => exact Ty.WfInHeap.wf_reader (CaptureSet.wf_of_closed hcs) ih
+  | arr hcs _ ih => exact Ty.WfInHeap.wf_arr (CaptureSet.wf_of_closed hcs) ih
+  | pair hcs _ _ ih1 ih2 => exact Ty.WfInHeap.wf_pair (CaptureSet.wf_of_closed hcs) ih1 ih2
   | exi _ ih => exact Ty.WfInHeap.wf_exi ih
   | typ _ ih => exact Ty.WfInHeap.wf_typ ih
 
@@ -1665,6 +1702,13 @@ theorem Exp.wf_of_closed {e : Exp s} {H : Heap}
   | drop hx => exact Exp.WfInHeap.wf_drop (Var.wf_of_closed hx)
   | unwrap hx => exact Exp.WfInHeap.wf_unwrap (Var.wf_of_closed hx)
   | read hx => exact Exp.WfInHeap.wf_read (Var.wf_of_closed hx)
+  | arr hxs => exact Exp.WfInHeap.wf_arr (fun x hx => Var.wf_of_closed (hxs x hx))
+  | idx hx hd => exact Exp.WfInHeap.wf_idx (Var.wf_of_closed hx) (Var.wf_of_closed hd)
+  | concat hx hy => exact Exp.WfInHeap.wf_concat (Var.wf_of_closed hx) (Var.wf_of_closed hy)
+  | split hx => exact Exp.WfInHeap.wf_split (Var.wf_of_closed hx)
+  | pair hx hy => exact Exp.WfInHeap.wf_pair (Var.wf_of_closed hx) (Var.wf_of_closed hy)
+  | fst hx => exact Exp.WfInHeap.wf_fst (Var.wf_of_closed hx)
+  | snd hx => exact Exp.WfInHeap.wf_snd (Var.wf_of_closed hx)
   | abs hcs hT _ ih =>
     exact Exp.WfInHeap.wf_abs (CaptureSet.wf_of_closed hcs) (Ty.wf_of_closed hT) ih
   | tabs hcs hT _ ih =>
@@ -1792,6 +1836,10 @@ theorem Ty.wf_monotonic
     exact Ty.WfInHeap.wf_cell (CaptureSet.wf_monotonic hsub hwf_cs) (ih_T hsub)
   | wf_reader hwf_cs _ ih_T =>
     exact Ty.WfInHeap.wf_reader (CaptureSet.wf_monotonic hsub hwf_cs) (ih_T hsub)
+  | wf_arr hwf_cs _ ih_T =>
+    exact Ty.WfInHeap.wf_arr (CaptureSet.wf_monotonic hsub hwf_cs) (ih_T hsub)
+  | wf_pair hwf_cs _ _ ih1 ih2 =>
+    exact Ty.WfInHeap.wf_pair (CaptureSet.wf_monotonic hsub hwf_cs) (ih1 hsub) (ih2 hsub)
   | wf_exi _ ih => exact Ty.WfInHeap.wf_exi (ih hsub)
   | wf_typ _ ih => exact Ty.WfInHeap.wf_typ (ih hsub)
 
@@ -1839,6 +1887,17 @@ theorem Exp.wf_monotonic
     exact Exp.WfInHeap.wf_consumer_app (Var.wf_monotonic hsub hwf_x) (ih_e hsub)
   | wf_write hwf_x hwf_y =>
     exact Exp.WfInHeap.wf_write (Var.wf_monotonic hsub hwf_x) (Var.wf_monotonic hsub hwf_y)
+  | wf_arr hwf_xs =>
+    exact Exp.WfInHeap.wf_arr (fun x hx => Var.wf_monotonic hsub (hwf_xs x hx))
+  | wf_idx hwf_x hwf_d =>
+    exact Exp.WfInHeap.wf_idx (Var.wf_monotonic hsub hwf_x) (Var.wf_monotonic hsub hwf_d)
+  | wf_concat hwf_x hwf_y =>
+    exact Exp.WfInHeap.wf_concat (Var.wf_monotonic hsub hwf_x) (Var.wf_monotonic hsub hwf_y)
+  | wf_split hwf_x => exact Exp.WfInHeap.wf_split (Var.wf_monotonic hsub hwf_x)
+  | wf_pair hwf_x hwf_y =>
+    exact Exp.WfInHeap.wf_pair (Var.wf_monotonic hsub hwf_x) (Var.wf_monotonic hsub hwf_y)
+  | wf_fst hwf_x => exact Exp.WfInHeap.wf_fst (Var.wf_monotonic hsub hwf_x)
+  | wf_snd hwf_x => exact Exp.WfInHeap.wf_snd (Var.wf_monotonic hsub hwf_x)
   | wf_letin _ _ ih1 ih2 => exact Exp.WfInHeap.wf_letin (ih1 hsub) (ih2 hsub)
   | wf_unpack _ _ ih1 ih2 => exact Exp.WfInHeap.wf_unpack (ih1 hsub) (ih2 hsub)
   | wf_par hwf_C1 hwf_C2 _ _ ih1 ih2 =>
@@ -2002,6 +2061,10 @@ theorem Ty.wf_dom_subsumes {h1 h2 : Heap}
     exact .wf_cell (CaptureSet.wf_dom_subsumes hsub hwf_cs) (ih_T hsub)
   | wf_reader hwf_cs _ ih_T =>
     exact .wf_reader (CaptureSet.wf_dom_subsumes hsub hwf_cs) (ih_T hsub)
+  | wf_arr hwf_cs _ ih_T =>
+    exact .wf_arr (CaptureSet.wf_dom_subsumes hsub hwf_cs) (ih_T hsub)
+  | wf_pair hwf_cs _ _ ih1 ih2 =>
+    exact .wf_pair (CaptureSet.wf_dom_subsumes hsub hwf_cs) (ih1 hsub) (ih2 hsub)
   | wf_exi _ ih => exact .wf_exi (ih hsub)
   | wf_typ _ ih => exact .wf_typ (ih hsub)
 
@@ -2048,11 +2111,40 @@ theorem Exp.wf_dom_subsumes {h1 h2 : Heap}
   | wf_read hwf_x => exact .wf_read (Var.wf_dom_subsumes hsub hwf_x)
   | wf_write hwf_x hwf_y =>
     exact .wf_write (Var.wf_dom_subsumes hsub hwf_x) (Var.wf_dom_subsumes hsub hwf_y)
+  | wf_arr hwf_xs => exact .wf_arr (fun x hx => Var.wf_dom_subsumes hsub (hwf_xs x hx))
+  | wf_idx hwf_x hwf_d =>
+    exact .wf_idx (Var.wf_dom_subsumes hsub hwf_x) (Var.wf_dom_subsumes hsub hwf_d)
+  | wf_concat hwf_x hwf_y =>
+    exact .wf_concat (Var.wf_dom_subsumes hsub hwf_x) (Var.wf_dom_subsumes hsub hwf_y)
+  | wf_split hwf_x => exact .wf_split (Var.wf_dom_subsumes hsub hwf_x)
+  | wf_pair hwf_x hwf_y =>
+    exact .wf_pair (Var.wf_dom_subsumes hsub hwf_x) (Var.wf_dom_subsumes hsub hwf_y)
+  | wf_fst hwf_x => exact .wf_fst (Var.wf_dom_subsumes hsub hwf_x)
+  | wf_snd hwf_x => exact .wf_snd (Var.wf_dom_subsumes hsub hwf_x)
   | wf_cond hwf_x _ _ ih2 ih3 =>
     exact .wf_cond (Var.wf_dom_subsumes hsub hwf_x) (ih2 hsub) (ih3 hsub)
   | wf_par hwf_C1 hwf_C2 _ _ ih1 ih2 =>
     exact .wf_par (CaptureSet.wf_dom_subsumes hsub hwf_C1)
       (CaptureSet.wf_dom_subsumes hsub hwf_C2) (ih1 hsub) (ih2 hsub)
+
+/-- Well-formedness of the capture set of a list of well-formed variables. -/
+theorem CaptureSet.ofVars_wf {xs : List (Var .var s)} {H : Heap}
+    (h : ∀ x ∈ xs, Var.WfInHeap x H) : (CaptureSet.ofVars xs).WfInHeap H := by
+  induction xs with
+  | nil => exact CaptureSet.WfInHeap.wf_empty
+  | cons x xs ih =>
+    refine CaptureSet.WfInHeap.wf_union ?_ (ih (fun y hy => h y (List.mem_cons_of_mem _ hy)))
+    cases h x List.mem_cons_self with
+    | wf_bound => exact CaptureSet.WfInHeap.wf_var_bound
+    | wf_free hx => exact CaptureSet.WfInHeap.wf_var_free hx
+
+theorem Var.wf_pair_list {x y : Var .var s} {H : Heap}
+    (hx : Var.WfInHeap x H) (hy : Var.WfInHeap y H) : ∀ z ∈ [x, y], Var.WfInHeap z H := by
+  intro z hz
+  simp only [List.mem_cons, List.not_mem_nil, or_false] at hz
+  rcases hz with rfl | rfl
+  · exact hx
+  · exact hy
 
 /-- Lookup the reachability set of a location. -/
 def reachability_of_loc
@@ -2091,6 +2183,8 @@ def compute_reachability
   | .unit => {}
   | .btrue => {}
   | .bfalse => {}
+  | .arr xs => expand_captures h (CaptureSet.ofVars xs)
+  | .pair x y => expand_captures h (CaptureSet.ofVars [x, y])
 
 def resolve : Heap -> Exp {} -> Option (Exp {})
 | s, .var (.free x) =>
@@ -2109,6 +2203,8 @@ def resolve_reachability (H : Heap) (e : Exp {}) : CapabilitySet :=
   | .consumer cs _ _ => expand_captures H cs
   | .boxed cs _ _ => expand_captures H cs
   | .reader (.free x) => .singleton .ro x
+  | .arr xs => expand_captures H (CaptureSet.ofVars xs)
+  | .pair x y => expand_captures H (CaptureSet.ofVars [x, y])
   | _ => {}
 
 theorem resolve_monotonic {H1 H2 : Heap}
@@ -2274,6 +2370,17 @@ theorem resolve_reachability_monotonic
   | wf_write _ _ => rfl
   | wf_cond _ _ _ => rfl
   | wf_par _ _ _ _ => rfl
+  | wf_arr hwf_xs =>
+    change expand_captures H2 _ = expand_captures H1 _
+    exact expand_captures_monotonic hsub _ (CaptureSet.ofVars_wf hwf_xs)
+  | wf_pair hwf_x hwf_y =>
+    change expand_captures H2 _ = expand_captures H1 _
+    exact expand_captures_monotonic hsub _ (CaptureSet.ofVars_wf (Var.wf_pair_list hwf_x hwf_y))
+  | wf_idx _ _ => rfl
+  | wf_concat _ _ => rfl
+  | wf_split _ => rfl
+  | wf_fst _ => rfl
+  | wf_snd _ => rfl
 
 /-- Computing reachability of a value in a bigger heap yields the same result. -/
 theorem compute_reachability_monotonic
@@ -2320,6 +2427,15 @@ theorem compute_reachability_monotonic
     rfl
   | bfalse =>
     rfl
+  | arr =>
+    change expand_captures h2 _ = expand_captures h1 _
+    cases hwf with
+    | wf_arr hwf_xs => exact expand_captures_monotonic hsub _ (CaptureSet.ofVars_wf hwf_xs)
+  | pair =>
+    change expand_captures h2 _ = expand_captures h1 _
+    cases hwf with
+    | wf_pair hwf_x hwf_y =>
+      exact expand_captures_monotonic hsub _ (CaptureSet.ofVars_wf (Var.wf_pair_list hwf_x hwf_y))
 
 /-- Updating an mcell preserves reachability_of_loc for all locations. -/
 theorem reachability_of_loc_update_mcell (h : Heap) (l : Nat) (ℓ : Liveness)
@@ -2367,6 +2483,10 @@ theorem compute_reachability_update_mcell (h : Heap) (l : Nat) (ℓ : Liveness)
   | consumer =>
     simpa only [compute_reachability] using expand_captures_update_mcell h l ℓ hexists n _
   | boxed =>
+    simpa only [compute_reachability] using expand_captures_update_mcell h l ℓ hexists n _
+  | arr =>
+    simpa only [compute_reachability] using expand_captures_update_mcell h l ℓ hexists n _
+  | pair =>
     simpa only [compute_reachability] using expand_captures_update_mcell h l ℓ hexists n _
   | reader =>
     rename_i x
@@ -2423,6 +2543,10 @@ theorem compute_reachability_drop_mcell (h : Heap) (l : Nat)
   | consumer =>
     simpa only [compute_reachability] using expand_captures_drop_mcell h l hexists _
   | boxed =>
+    simpa only [compute_reachability] using expand_captures_drop_mcell h l hexists _
+  | arr =>
+    simpa only [compute_reachability] using expand_captures_drop_mcell h l hexists _
+  | pair =>
     simpa only [compute_reachability] using expand_captures_drop_mcell h l hexists _
   | reader =>
     rename_i x
@@ -2550,6 +2674,8 @@ theorem compute_reachability_dom {H : Heap}
   | unit => exact absurd h CapabilitySet.not_hasmem_empty
   | btrue => exact absurd h CapabilitySet.not_hasmem_empty
   | bfalse => exact absurd h CapabilitySet.not_hasmem_empty
+  | arr xs => exact expand_captures_dom hdom h
+  | pair x y => exact expand_captures_dom hdom h
   | _ => cases hv
 
 
@@ -2744,6 +2870,12 @@ theorem Ty.wf_rename
   | wf_reader hwf_cs _ ih_T =>
     simpa only [Ty.rename] using
       (Ty.WfInHeap.wf_reader (CaptureSet.wf_rename hwf_cs) ih_T)
+  | wf_arr hwf_cs _ ih_T =>
+    simpa only [Ty.rename] using
+      (Ty.WfInHeap.wf_arr (CaptureSet.wf_rename hwf_cs) ih_T)
+  | wf_pair hwf_cs _ _ ih1 ih2 =>
+    simpa only [Ty.rename] using
+      (Ty.WfInHeap.wf_pair (CaptureSet.wf_rename hwf_cs) ih1 ih2)
   | wf_exi _ ih =>
     simpa only [Ty.rename] using (Ty.WfInHeap.wf_exi ih)
   | wf_typ _ ih =>
@@ -2836,6 +2968,27 @@ theorem Exp.wf_rename
   | wf_write hwf_x hwf_y =>
     simpa only [Exp.rename] using
       (Exp.WfInHeap.wf_write (Var.wf_rename hwf_x) (Var.wf_rename hwf_y))
+  | wf_arr hwf_xs =>
+    simp only [Exp.rename]
+    refine Exp.WfInHeap.wf_arr ?_
+    intro z hz
+    obtain ⟨z0, hz0, rfl⟩ := List.mem_map.mp hz
+    exact Var.wf_rename (hwf_xs z0 hz0)
+  | wf_idx hwf_x hwf_d =>
+    simpa only [Exp.rename] using
+      (Exp.WfInHeap.wf_idx (Var.wf_rename hwf_x) (Var.wf_rename hwf_d))
+  | wf_concat hwf_x hwf_y =>
+    simpa only [Exp.rename] using
+      (Exp.WfInHeap.wf_concat (Var.wf_rename hwf_x) (Var.wf_rename hwf_y))
+  | wf_split hwf_x =>
+    simpa only [Exp.rename] using (Exp.WfInHeap.wf_split (Var.wf_rename hwf_x))
+  | wf_pair hwf_x hwf_y =>
+    simpa only [Exp.rename] using
+      (Exp.WfInHeap.wf_pair (Var.wf_rename hwf_x) (Var.wf_rename hwf_y))
+  | wf_fst hwf_x =>
+    simpa only [Exp.rename] using (Exp.WfInHeap.wf_fst (Var.wf_rename hwf_x))
+  | wf_snd hwf_x =>
+    simpa only [Exp.rename] using (Exp.WfInHeap.wf_snd (Var.wf_rename hwf_x))
   | wf_cond hwf_x _ _ ih2 ih3 =>
     simpa only [Exp.rename] using
       (Exp.WfInHeap.wf_cond (Var.wf_rename hwf_x) ih2 ih3)
@@ -3090,6 +3243,12 @@ theorem Ty.wf_subst
   | wf_reader hwf_cs _ ih_T =>
     simpa only [Ty.subst] using
       (Ty.WfInHeap.wf_reader (CaptureSet.wf_subst hwf_cs hwf_σ) (ih_T hwf_σ))
+  | wf_arr hwf_cs _ ih_T =>
+    simpa only [Ty.subst] using
+      (Ty.WfInHeap.wf_arr (CaptureSet.wf_subst hwf_cs hwf_σ) (ih_T hwf_σ))
+  | wf_pair hwf_cs _ _ ih1 ih2 =>
+    simpa only [Ty.subst] using
+      (Ty.WfInHeap.wf_pair (CaptureSet.wf_subst hwf_cs hwf_σ) (ih1 hwf_σ) (ih2 hwf_σ))
   | wf_exi _ ih =>
     simpa only [Ty.subst] using
       (Ty.WfInHeap.wf_exi (ih (Subst.wf_liftCVars hwf_σ)))
@@ -3188,6 +3347,27 @@ theorem Exp.wf_subst
   | wf_write hwf_x hwf_y =>
     simpa only [Exp.subst] using
       (Exp.WfInHeap.wf_write (Var.wf_subst hwf_x hwf_σ) (Var.wf_subst hwf_y hwf_σ))
+  | wf_arr hwf_xs =>
+    simp only [Exp.subst]
+    refine Exp.WfInHeap.wf_arr ?_
+    intro z hz
+    obtain ⟨z0, hz0, rfl⟩ := List.mem_map.mp hz
+    exact Var.wf_subst (hwf_xs z0 hz0) hwf_σ
+  | wf_idx hwf_x hwf_d =>
+    simpa only [Exp.subst] using
+      (Exp.WfInHeap.wf_idx (Var.wf_subst hwf_x hwf_σ) (Var.wf_subst hwf_d hwf_σ))
+  | wf_concat hwf_x hwf_y =>
+    simpa only [Exp.subst] using
+      (Exp.WfInHeap.wf_concat (Var.wf_subst hwf_x hwf_σ) (Var.wf_subst hwf_y hwf_σ))
+  | wf_split hwf_x =>
+    simpa only [Exp.subst] using (Exp.WfInHeap.wf_split (Var.wf_subst hwf_x hwf_σ))
+  | wf_pair hwf_x hwf_y =>
+    simpa only [Exp.subst] using
+      (Exp.WfInHeap.wf_pair (Var.wf_subst hwf_x hwf_σ) (Var.wf_subst hwf_y hwf_σ))
+  | wf_fst hwf_x =>
+    simpa only [Exp.subst] using (Exp.WfInHeap.wf_fst (Var.wf_subst hwf_x hwf_σ))
+  | wf_snd hwf_x =>
+    simpa only [Exp.subst] using (Exp.WfInHeap.wf_snd (Var.wf_subst hwf_x hwf_σ))
   | wf_cond hwf_x hwf2 hwf3 ih2 ih3 =>
     simpa only [Exp.subst] using
       (Exp.WfInHeap.wf_cond (Var.wf_subst hwf_x hwf_σ) (ih2 hwf_σ) (ih3 hwf_σ))

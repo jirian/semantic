@@ -35,6 +35,20 @@ inductive Exp : Sig -> Type where
   CaptureSet s -> CaptureSet s ->
   Exp s -> Exp s ->
   Exp s
+/-- An array value: the list of its (distinct) cells. -/
+| arr : List (Var .var s) -> Exp s
+/-- `idx a n d`: the `n`-th cell of array `a`, or the fallback cell `d` if out of range. -/
+| idx : Var .var s -> Nat -> Var .var s -> Exp s
+/-- `concat a b`: joins two separated arrays. -/
+| concat : Var .var s -> Var .var s -> Exp s
+/-- `split a n`: consumes `a` and splits it at `n` into two fresh arrays. -/
+| split : Var .var s -> Nat -> Exp s
+/-- A pair of variables. -/
+| pair : Var .var s -> Var .var s -> Exp s
+/-- First projection. -/
+| fst : Var .var s -> Exp s
+/-- Second projection. -/
+| snd : Var .var s -> Exp s
 
 /-- Applies a renaming to all bound variables in an expression. -/
 def Exp.rename : Exp s1 -> Rename s1 s2 -> Exp s2
@@ -63,6 +77,13 @@ def Exp.rename : Exp s1 -> Rename s1 s2 -> Exp s2
 | .write x y, f => .write (x.rename f) (y.rename f)
 | .cond x e2 e3, f => .cond (x.rename f) (e2.rename f) (e3.rename f)
 | .par C1 C2 e1 e2, f => .par (C1.rename f) (C2.rename f) (e1.rename f) (e2.rename f)
+| .arr xs, f => .arr (xs.map (·.rename f))
+| .idx x n d, f => .idx (x.rename f) n (d.rename f)
+| .concat x y, f => .concat (x.rename f) (y.rename f)
+| .split x n, f => .split (x.rename f) n
+| .pair x y, f => .pair (x.rename f) (y.rename f)
+| .fst x, f => .fst (x.rename f)
+| .snd x, f => .snd (x.rename f)
 
 /-- An expression is a value if it is an abstraction, pack, or unit. -/
 inductive Exp.IsVal : Exp s -> Prop where
@@ -76,6 +97,8 @@ inductive Exp.IsVal : Exp s -> Prop where
 | unit : Exp.IsVal .unit
 | btrue : Exp.IsVal .btrue
 | bfalse : Exp.IsVal .bfalse
+| arr : Exp.IsVal (.arr xs)
+| pair : Exp.IsVal (.pair x y)
 
 /-- A simple value is a value that is not a pack. Therefore,
       a simple value always has a capturing type, not an existential type. -/
@@ -89,6 +112,8 @@ inductive Exp.IsSimpleVal : Exp s -> Prop where
 | btrue : Exp.IsSimpleVal .btrue
 | bfalse : Exp.IsSimpleVal .bfalse
 | reader : Exp.IsSimpleVal (.reader x)
+| arr : Exp.IsSimpleVal (.arr xs)
+| pair : Exp.IsSimpleVal (.pair x y)
 
 inductive Exp.IsSimpleAns : Exp s -> Prop where
 | is_simple_val :
@@ -170,6 +195,20 @@ def Exp.rename_id {e : Exp s} : e.rename (Rename.id) = e := by
     exact congrArg (Exp.cond x e2) ih3
   | par C1 C2 e1 e2 ih1 ih2 =>
     simp only [Exp.rename, CaptureSet.rename_id, ih1, ih2]
+  | arr xs =>
+    simp only [Exp.rename, Var.rename_id, List.map_id']
+  | idx x n d =>
+    simp only [Exp.rename, Var.rename_id]
+  | concat x y =>
+    simp only [Exp.rename, Var.rename_id]
+  | split x n =>
+    simp only [Exp.rename, Var.rename_id]
+  | pair x y =>
+    simp only [Exp.rename, Var.rename_id]
+  | fst x =>
+    simp only [Exp.rename, Var.rename_id]
+  | snd x =>
+    simp only [Exp.rename, Var.rename_id]
 
 /-- Renaming distributes over composition of renamings. -/
 theorem Var.rename_comp {x : Var k s1} {f : Rename s1 s2} {g : Rename s2 s3} :
@@ -251,6 +290,20 @@ theorem Exp.rename_comp {e : Exp s1} {f : Rename s1 s2} {g : Rename s2 s3} :
       congrArg (Exp.cond (x.rename (f.comp g)) (e2.rename (f.comp g))) (ih3 (f := f) (g := g))
   | par C1 C2 e1 e2 ih1 ih2 =>
     simp only [Exp.rename, CaptureSet.rename_comp, ih1, ih2]
+  | arr xs =>
+    simp only [Exp.rename, List.map_map, Function.comp_def, Var.rename_comp]
+  | idx x n d =>
+    simp only [Exp.rename, Var.rename_comp]
+  | concat x y =>
+    simp only [Exp.rename, Var.rename_comp]
+  | split x n =>
+    simp only [Exp.rename, Var.rename_comp]
+  | pair x y =>
+    simp only [Exp.rename, Var.rename_comp]
+  | fst x =>
+    simp only [Exp.rename, Var.rename_comp]
+  | snd x =>
+    simp only [Exp.rename, Var.rename_comp]
 
 /-- Weakening commutes with renaming under a binder. -/
 theorem Var.weaken_rename_comm {x : Var k s1} {f : Rename s1 s2} :
@@ -300,5 +353,12 @@ inductive Exp.IsClosed : Exp s -> Prop where
 | cond : Var.IsClosed x -> Exp.IsClosed e2 -> Exp.IsClosed e3 -> Exp.IsClosed (.cond x e2 e3)
 | par : CaptureSet.IsClosed C1 -> CaptureSet.IsClosed C2 ->
     Exp.IsClosed e1 -> Exp.IsClosed e2 -> Exp.IsClosed (.par C1 C2 e1 e2)
+| arr : (∀ x ∈ xs, Var.IsClosed x) -> Exp.IsClosed (.arr xs)
+| idx : Var.IsClosed x -> Var.IsClosed d -> Exp.IsClosed (.idx x n d)
+| concat : Var.IsClosed x -> Var.IsClosed y -> Exp.IsClosed (.concat x y)
+| split : Var.IsClosed x -> Exp.IsClosed (.split x n)
+| pair : Var.IsClosed x -> Var.IsClosed y -> Exp.IsClosed (.pair x y)
+| fst : Var.IsClosed x -> Exp.IsClosed (.fst x)
+| snd : Var.IsClosed x -> Exp.IsClosed (.snd x)
 
 end CoreCapybara

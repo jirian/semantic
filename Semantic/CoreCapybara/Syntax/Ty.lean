@@ -67,6 +67,10 @@ inductive Ty : TySort -> Sig -> Type where
 | unit : Ty .capt s
 /-- The boolean type. -/
 | bool : Ty .capt s
+/-- An array of mutable cells holding `T`, tracked by capture set `cs`. -/
+| arr : CaptureSet s -> Ty .capt s -> Ty .capt s
+/-- A pair `(T1 × T2)^cs`. -/
+| pair : CaptureSet s -> Ty .capt s -> Ty .capt s -> Ty .capt s
 -- existential types
 /-- An existential type binding `n` fresh capture variables in its body. -/
 | exi : (n : Nat) -> Ty .capt (s.extendCVars n) -> Ty .exi s
@@ -87,6 +91,8 @@ def Ty.rename : Ty sort s1 -> Rename s1 s2 -> Ty sort s2
 | .bool, _ => .bool
 | .cell cs T, f => .cell (cs.rename f) (T.rename f)
 | .reader cs T, f => .reader (cs.rename f) (T.rename f)
+| .arr cs T, f => .arr (cs.rename f) (T.rename f)
+| .pair cs T1 T2, f => .pair (cs.rename f) (T1.rename f) (T2.rename f)
 | .exi n T, f => .exi n (T.rename (f.liftCVars n))
 | .typ T, f => .typ (T.rename f)
 
@@ -118,6 +124,11 @@ def Ty.rename_id {T : Ty sort s} : T.rename (Rename.id) = T := by
   | reader cs T ih =>
     simp only [Ty.rename, CaptureSet.rename_id]
     exact congrArg (Ty.reader cs) ih
+  | arr cs T ih =>
+    simp only [Ty.rename, CaptureSet.rename_id]
+    exact congrArg (Ty.arr cs) ih
+  | pair cs T1 T2 ih1 ih2 =>
+    simp only [Ty.rename, CaptureSet.rename_id, ih1, ih2]
   | unit => rfl
   | bool => rfl
   | exi n T ih =>
@@ -162,6 +173,12 @@ theorem Ty.rename_comp {T : Ty sort s1} {f : Rename s1 s2} {g : Rename s2 s3} :
     simpa only [Ty.rename, CaptureSet.rename_comp] using
       congrArg (Ty.reader (cs.rename (f.comp g)))
         (ih (f := f) (g := g))
+  | arr cs T ih =>
+    simpa only [Ty.rename, CaptureSet.rename_comp] using
+      congrArg (Ty.arr (cs.rename (f.comp g)))
+        (ih (f := f) (g := g))
+  | pair cs T1 T2 ih1 ih2 =>
+    simp only [Ty.rename, CaptureSet.rename_comp, ih1, ih2]
   | unit => rfl
   | bool => rfl
   | exi n T ih =>
@@ -189,6 +206,8 @@ def Ty.captureSet : Ty .capt s -> CaptureSet s
 | .reader cs _ => cs
 | .unit => .empty
 | .bool => .empty
+| .arr cs _ => cs
+| .pair cs _ _ => cs
 
 def Ty.refineCaptureSet : Ty .capt s -> CaptureSet s -> Ty .capt s
 | .top, _ => .top
@@ -203,6 +222,8 @@ def Ty.refineCaptureSet : Ty .capt s -> CaptureSet s -> Ty .capt s
 | .reader _ T, cs => .reader cs T
 | .unit, _ => .unit
 | .bool, _ => .bool
+| .arr _ T, cs => .arr cs T
+| .pair _ T1 T2, cs => .pair cs T1 T2
 
 /-- A capture bound is closed if it contains no heap pointers. -/
 inductive CaptureBound.IsClosed : CaptureBound s -> Prop where
@@ -231,6 +252,9 @@ inductive Ty.IsClosed : Ty sort s -> Prop where
 | bool : Ty.IsClosed .bool
 | cell : CaptureSet.IsClosed cs -> Ty.IsClosed T -> Ty.IsClosed (.cell cs T)
 | reader : CaptureSet.IsClosed cs -> Ty.IsClosed T -> Ty.IsClosed (.reader cs T)
+| arr : CaptureSet.IsClosed cs -> Ty.IsClosed T -> Ty.IsClosed (.arr cs T)
+| pair : CaptureSet.IsClosed cs -> Ty.IsClosed T1 -> Ty.IsClosed T2 ->
+    Ty.IsClosed (.pair cs T1 T2)
 | exi : {s : Sig} -> {n : Nat} -> {T : Ty .capt (s.extendCVars n)} ->
     Ty.IsClosed T -> Ty.IsClosed (.exi n T)
 | typ : Ty.IsClosed T -> Ty.IsClosed (.typ T)

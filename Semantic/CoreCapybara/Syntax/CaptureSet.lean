@@ -798,4 +798,16 @@ theorem cvar_subset_coveredby {a : Access} {c : BVar s .cvar} {C1 C2 : CaptureSe
 
 end CaptureSet.CoveredBy
 
+/-- The capture set `{x₁, …, xₙ}` (at access `ε`) of a list of variables: the
+capture set of an array value, and (for two variables) of a pair value. -/
+def CaptureSet.ofVars {s : Sig} : List (Var .var s) → CaptureSet s
+  | [] => .empty
+  | x :: xs => .union (.var (.M .epsilon) x) (CaptureSet.ofVars xs)
+
+theorem CaptureSet.ofVars_rename {xs : List (Var .var s1)} {f : Rename s1 s2} :
+    (CaptureSet.ofVars xs).rename f = CaptureSet.ofVars (xs.map (·.rename f)) := by
+  induction xs with
+  | nil => rfl
+  | cons x xs ih => simp only [CaptureSet.ofVars, CaptureSet.rename, List.map_cons, ih]
+
 end CoreCapybara

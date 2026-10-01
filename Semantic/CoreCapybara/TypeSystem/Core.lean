@@ -54,6 +54,15 @@ def CaptureSet.freshCVars {s : Sig} : (n : Nat) → CaptureSet (s.extendCVars n)
   | 0 => {}
   | n + 1 => (.cvar (.M .epsilon) .here) ∪ (CaptureSet.freshCVars (s := s) n).rename Rename.succ
 
+/-- The body of the result type of `split`: a pair of two arrays, each tracked by one of
+the two fresh capture variables (`here` = left half, `there here` = right half). -/
+def Ty.splitBody {s : Sig} (C : CaptureSet s) (T : Ty .capt s) : Ty .capt (s.extendCVars 2) :=
+  let c0 : CaptureSet (s.extendCVars 2) := .cvar (.M .epsilon) .here
+  let c1 : CaptureSet (s.extendCVars 2) := .cvar (.M .epsilon) (.there .here)
+  let _ := C
+  .pair (c0 ∪ c1) (.arr c0 (T.rename (Rename.weakenCVars 2)))
+    (.arr c1 (T.rename (Rename.weakenCVars 2)))
+
 inductive Subcapt : Ctx s -> CaptureSet s -> CaptureSet s -> Prop where
 | sc_trans :
   Subcapt Γ C1 C2 ->
@@ -503,6 +512,46 @@ inductive HasType : CaptureSet s -> Ctx s -> Exp s -> Ty .exi s -> Prop where
   HasType {} Γ (.var y) (.typ .unit) ->
   ------------------------------------------------
   HasType (.var (.M .epsilon) x) Γ (.app x y) (.typ .unit)
+| arr {xs : List (Var .var s)} {T : Ty .capt s} {Cs : Var .var s → CaptureSet s} :
+  -- every element is a cell holding `T`
+  (∀ x ∈ xs, HasType {} Γ (.var x) (.typ (.cell (Cs x) T))) ->
+  -- the elements are pairwise separated, hence denote distinct cells
+  xs.Pairwise (fun x y => SepCheck Γ (.var (.M .epsilon) x) (.var (.M .epsilon) y)) ->
+  ----------------------------
+  HasType {} Γ (.arr xs) (.typ (.arr (CaptureSet.ofVars xs) T))
+| idx {C D : CaptureSet s} {T : Ty .capt s} :
+  HasType {} Γ (.var x) (.typ (.arr C T)) ->
+  HasType {} Γ (.var d) (.typ (.cell D T)) ->
+  ----------------------------
+  HasType {} Γ (.idx x n d)
+    (.typ (.cell ((.var (.M .epsilon) x) ∪ (.var (.M .epsilon) d)) T))
+| concat {C1 C2 : CaptureSet s} {T : Ty .capt s} :
+  HasType {} Γ (.var x) (.typ (.arr C1 T)) ->
+  HasType {} Γ (.var y) (.typ (.arr C2 T)) ->
+  SepCheck Γ (.var (.M .epsilon) x) (.var (.M .epsilon) y) ->
+  ----------------------------
+  HasType {} Γ (.concat x y)
+    (.typ (.arr ((.var (.M .epsilon) x) ∪ (.var (.M .epsilon) y)) T))
+| split {C : CaptureSet s} {T : Ty .capt s} :
+  Γ.IsClosed ->
+  (CaptureSet.var (.M .epsilon) x).droppable Γ ->
+  HasType {} Γ (.var x) (.typ (.arr C T)) ->
+  ----------------------------
+  HasType ((.var (.M .epsilon) x) ∪ (.var .drop x)) Γ (.split x n)
+    (.exi 2 (Ty.splitBody C T))
+| pair {T1 T2 : Ty .capt s} :
+  HasType {} Γ (.var x) (.typ T1) ->
+  HasType {} Γ (.var y) (.typ T2) ->
+  ----------------------------
+  HasType {} Γ (.pair x y) (.typ (.pair (T1.captureSet ∪ T2.captureSet) T1 T2))
+| fst {C : CaptureSet s} {T1 T2 : Ty .capt s} :
+  HasType {} Γ (.var x) (.typ (.pair C T1 T2)) ->
+  ----------------------------
+  HasType {} Γ (.fst x) (.typ T1)
+| snd {C : CaptureSet s} {T1 T2 : Ty .capt s} :
+  HasType {} Γ (.var x) (.typ (.pair C T1 T2)) ->
+  ----------------------------
+  HasType {} Γ (.snd x) (.typ T2)
 | subtyp :
   HasType C1 Γ e E1 ->
   Subcapt Γ C1 C2 ->
