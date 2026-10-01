@@ -298,6 +298,8 @@ theorem Ty.captureSet_isClosed {T : Ty .capt s}
   case modal => cases h with | modal hcs _ _ => exact hcs
   case cap => cases h with | cap hcs => exact hcs
   case cell => cases h with | cell hcs => exact hcs
+  case arr => cases h with | arr hcs => exact hcs
+  case pair => cases h with | pair hcs => exact hcs
   case reader => cases h with | reader hcs => exact hcs
   case unit => exact CaptureSet.IsClosed.empty
   case bool => exact CaptureSet.IsClosed.empty
@@ -6706,6 +6708,59 @@ theorem Ctx.extendCVars_isClosed {s : Sig} {Γ : Ctx s} {a : Authority} :
     Ctx.IsClosed.push (Ctx.extendCVars_isClosed h)
       (Binding.IsClosed.cvar CaptureBound.IsClosed.unbound)
 
+/-! ## Arrays, owned split and pairs -/
+
+theorem sem_typ_pair {x y : BVar s .var} {T1 T2 : Ty .capt s}
+  (hx : SemanticTyping {} Γ (Exp.var (.bound x)) (.typ T1))
+  (hy : SemanticTyping {} Γ (Exp.var (.bound y)) (.typ T2)) :
+  SemanticTyping {} Γ (Exp.pair (.bound x) (.bound y))
+    (.typ (.pair (T1.captureSet ∪ T2.captureSet) T1 T2)) := by
+  sorry
+
+theorem sem_typ_fst {x : BVar s .var} {C : CaptureSet s} {T1 T2 : Ty .capt s}
+  (hx : SemanticTyping {} Γ (Exp.var (.bound x)) (.typ (.pair C T1 T2))) :
+  SemanticTyping {} Γ (Exp.fst (.bound x)) (.typ T1) := by
+  sorry
+
+theorem sem_typ_snd {x : BVar s .var} {C : CaptureSet s} {T1 T2 : Ty .capt s}
+  (hx : SemanticTyping {} Γ (Exp.var (.bound x)) (.typ (.pair C T1 T2))) :
+  SemanticTyping {} Γ (Exp.snd (.bound x)) (.typ T2) := by
+  sorry
+
+theorem sem_typ_arr {xs : List (BVar s .var)} {T : Ty .capt s} {Cs : Var .var s → CaptureSet s}
+  (hT : T.IsClosed)
+  (hcells : ∀ x ∈ xs, SemanticTyping {} Γ (Exp.var (.bound x)) (.typ (.cell (Cs (.bound x)) T)))
+  (hsep : xs.Pairwise (fun x y =>
+    SemSepCheck Γ (.var (.M .epsilon) (.bound x)) (.var (.M .epsilon) (.bound y)))) :
+  SemanticTyping {} Γ (Exp.arr (xs.map .bound))
+    (.typ (.arr (CaptureSet.ofVars (xs.map .bound)) T)) := by
+  sorry
+
+theorem sem_typ_idx {x d : BVar s .var} {n : Nat} {C D : CaptureSet s} {T : Ty .capt s}
+  (hx : SemanticTyping {} Γ (Exp.var (.bound x)) (.typ (.arr C T)))
+  (hd : SemanticTyping {} Γ (Exp.var (.bound d)) (.typ (.cell D T))) :
+  SemanticTyping {} Γ (Exp.idx (.bound x) n (.bound d))
+    (.typ (.cell ((.var (.M .epsilon) (.bound x)) ∪ (.var (.M .epsilon) (.bound d))) T)) := by
+  sorry
+
+theorem sem_typ_concat {x y : BVar s .var} {C1 C2 : CaptureSet s} {T : Ty .capt s}
+  (hx : SemanticTyping {} Γ (Exp.var (.bound x)) (.typ (.arr C1 T)))
+  (hy : SemanticTyping {} Γ (Exp.var (.bound y)) (.typ (.arr C2 T)))
+  (hsep : SemSepCheck Γ (.var (.M .epsilon) (.bound x)) (.var (.M .epsilon) (.bound y))) :
+  SemanticTyping {} Γ (Exp.concat (.bound x) (.bound y))
+    (.typ (.arr ((.var (.M .epsilon) (.bound x)) ∪ (.var (.M .epsilon) (.bound y))) T)) := by
+  sorry
+
+/-- **Owned split.**  Splitting consumes the array `x` (its use set carries `x` at `.drop`)
+and packs its two halves with their cell sets as two fresh, disjoint witnesses: a `pack`
+whose evidence is computed at run time. -/
+theorem sem_typ_split {x : BVar s .var} {n : Nat} {C : CaptureSet s} {T : Ty .capt s}
+  (hΓ : Γ.IsClosed)
+  (hx : SemanticTyping {} Γ (Exp.var (.bound x)) (.typ (.arr C T))) :
+  SemanticTyping ((.var (.M .epsilon) (.bound x)) ∪ (.var .drop (.bound x))) Γ
+    (Exp.split (.bound x) n) (.exi 2 (Ty.splitBody C T)) := by
+  sorry
+
 theorem fundamental
   (hΓ : Γ.IsClosed)
   (ht : HasType C Γ e T) :
@@ -6856,6 +6911,66 @@ theorem fundamental
       exact sem_typ_write hΓ
         (hx_ih hΓ (Exp.IsClosed.var Var.IsClosed.bound))
         (hy_ih hΓ (Exp.IsClosed.var Var.IsClosed.bound))
+  case pair =>
+    rename_i hx_syn hy_syn hx_ih hy_ih
+    cases hclosed_e with
+    | pair hx_closed hy_closed =>
+      cases hx_closed; cases hy_closed
+      exact sem_typ_pair (hx_ih hΓ (Exp.IsClosed.var Var.IsClosed.bound))
+        (hy_ih hΓ (Exp.IsClosed.var Var.IsClosed.bound))
+  case fst =>
+    rename_i hx_syn hx_ih
+    cases hclosed_e with
+    | fst hx_closed =>
+      cases hx_closed
+      exact sem_typ_fst (hx_ih hΓ (Exp.IsClosed.var Var.IsClosed.bound))
+  case snd =>
+    rename_i hx_syn hx_ih
+    cases hclosed_e with
+    | snd hx_closed =>
+      cases hx_closed
+      exact sem_typ_snd (hx_ih hΓ (Exp.IsClosed.var Var.IsClosed.bound))
+  case idx =>
+    rename_i hx_syn hd_syn hx_ih hd_ih
+    cases hclosed_e with
+    | idx hx_closed hd_closed =>
+      cases hx_closed; cases hd_closed
+      exact sem_typ_idx (hx_ih hΓ (Exp.IsClosed.var Var.IsClosed.bound))
+        (hd_ih hΓ (Exp.IsClosed.var Var.IsClosed.bound))
+  case concat =>
+    rename_i hx_syn hy_syn hsep_syn hx_ih hy_ih
+    cases hclosed_e with
+    | concat hx_closed hy_closed =>
+      cases hx_closed; cases hy_closed
+      exact sem_typ_concat (hx_ih hΓ (Exp.IsClosed.var Var.IsClosed.bound))
+        (hy_ih hΓ (Exp.IsClosed.var Var.IsClosed.bound)) (fundamental_sepcheck hsep_syn)
+  case split =>
+    rename_i hΓ_closed _hdrop hx_syn hx_ih
+    cases hclosed_e with
+    | split hx_closed =>
+      cases hx_closed
+      exact sem_typ_split hΓ_closed (hx_ih hΓ (Exp.IsClosed.var Var.IsClosed.bound))
+  case arr =>
+    rename_i xs T Cs hT hcells hsep hcells_ih
+    cases hclosed_e with
+    | arr hxs_closed =>
+      -- every element is a bound variable (closedness)
+      have hbound : ∀ x ∈ xs, ∃ bx, x = .bound bx := by
+        intro x hx; cases hxs_closed x hx; exact ⟨_, rfl⟩
+      obtain ⟨bxs, rfl⟩ : ∃ bxs : List (BVar _ .var), xs = bxs.map .bound := by
+        clear hcells hsep hcells_ih hxs_closed
+        induction xs with
+        | nil => exact ⟨[], rfl⟩
+        | cons x xs ih =>
+          obtain ⟨bx, rfl⟩ := hbound x List.mem_cons_self
+          obtain ⟨bxs, hbxs⟩ := ih (fun y hy => hbound y (List.mem_cons_of_mem _ hy))
+          exact ⟨bx :: bxs, by simp [hbxs]⟩
+      exact sem_typ_arr hT
+        (fun bx hbx => hcells_ih (.bound bx) (List.mem_map_of_mem hbx) hΓ
+          (Exp.IsClosed.var Var.IsClosed.bound))
+        ((List.pairwise_map (R := fun x y : Var .var _ =>
+          SemSepCheck _ (.var (.M .epsilon) x) (.var (.M .epsilon) y))).mp
+          (hsep.imp (fun h => fundamental_sepcheck h)))
   case par ht1_syn ht2_syn hsep_syn ht1_ih ht2_ih =>
     cases hclosed_e with
     | par hclosed_C1 hclosed_C2 hclosed_e1 hclosed_e2 =>
