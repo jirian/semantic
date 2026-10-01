@@ -6710,6 +6710,97 @@ theorem Ctx.extendCVars_isClosed {s : Sig} {Γ : Ctx s} {a : Authority} :
 
 /-! ## Arrays, owned split and pairs -/
 
+/-! ### Footprints of cell lists -/
+
+/-- The expanded captures of a list of cells only reach its cells, at `ε`. -/
+theorem expand_captures_ofVars_hasmem {H : Heap} {ls : List Nat} {mu : CapMode} {l : Nat}
+    (hcells : ∀ l' ∈ ls, ∃ c, H l' = some (.capability c))
+    (h : (expand_captures H (CaptureSet.ofVars (ls.map Var.free))).hasmem mu l) :
+    l ∈ ls ∧ mu = .access .epsilon := by
+  induction ls with
+  | nil => exact absurd h CapabilitySet.not_hasmem_empty
+  | cons a ls ih =>
+    simp only [List.map_cons, CaptureSet.ofVars, expand_captures] at h
+    cases h with
+    | left h =>
+      obtain ⟨c, hc⟩ := hcells a List.mem_cons_self
+      simp only [reachability_of_loc, hc, CapabilitySet.applyAccess_M, CapabilitySet.applyMut,
+        CapabilitySet.singleton] at h
+      cases h
+      exact ⟨List.mem_cons_self, rfl⟩
+    | right h =>
+      obtain ⟨hl, hmu⟩ := ih (fun l' hl' => hcells l' (List.mem_cons_of_mem _ hl')) h
+      exact ⟨List.mem_cons_of_mem _ hl, hmu⟩
+
+theorem expand_captures_ofVars_hasmem_self {H : Heap} {ls : List Nat} {l : Nat}
+    (hl : l ∈ ls) (hcap : ∃ c, H l = some (.capability c)) :
+    (expand_captures H (CaptureSet.ofVars (ls.map Var.free))).hasmem (.access .epsilon) l := by
+  induction ls with
+  | nil => cases hl
+  | cons a ls ih =>
+    simp only [List.map_cons, CaptureSet.ofVars, expand_captures]
+    rcases List.mem_cons.mp hl with rfl | hl'
+    · apply CapabilitySet.hasmem.left
+      obtain ⟨c, hc⟩ := hcap
+      simp only [reachability_of_loc, hc, CapabilitySet.applyAccess_M, CapabilitySet.applyMut,
+        CapabilitySet.singleton]
+      exact CapabilitySet.hasmem.here
+    · exact CapabilitySet.hasmem.right (ih hl')
+
+/-- A variable that resolves to an array reaches each of its cells at `ε`. -/
+theorem var_ground_denot_hasmem_arr {m : Memory} {n l : Nat} {ls : List Nat}
+    (hres : resolve m.heap (.var (.free n)) = some (.arr (ls.map Var.free)))
+    (hl : l ∈ ls) (hcap : ∃ c, m.heap l = some (.capability c)) :
+    ((CaptureSet.var (.M .epsilon) (.free n)).ground_denot m).hasmem (.access .epsilon) l := by
+  simp only [resolve] at hres
+  split at hres
+  · rename_i v hcell
+    simp only [Option.some.injEq] at hres
+    simp only [CaptureSet.ground_denot, CapabilitySet.applyAccess_M, CapabilitySet.applyMut]
+    rw [reachability_of_loc_eq_resolve_reachability m n v hcell, hres]
+    simp only [resolve_reachability]
+    exact expand_captures_ofVars_hasmem_self hl hcap
+  · cases hres
+
+theorem List.nodup_take_drop_disjoint {α : Type} {l : List α} (h : l.Nodup) (n : Nat) {a : α}
+    (h1 : a ∈ l.take n) (h2 : a ∈ l.drop n) : False := by
+  rw [← List.take_append_drop n l] at h
+  exact List.disjoint_of_nodup_append h h1 h2
+
+
+
+/-- Non-interfering footprints never share a cell at full (`ε`) access. -/
+theorem CapabilitySet.Noninterference.no_eps_share {C1 C2 : CapabilitySet}
+    (hni : CapabilitySet.Noninterference C1 C2) :
+    ∀ mu1 mu2 l, C1.hasmem mu1 l → C2.hasmem mu2 l →
+      ¬ (mu1 = .access .epsilon ∧ mu2 = .access .epsilon) := by
+  induction hni with
+  | ni_symm _ ih =>
+    intro mu1 mu2 l h1 h2 ⟨e1, e2⟩
+    exact ih mu2 mu1 l h2 h1 ⟨e2, e1⟩
+  | ni_empty =>
+    intro mu1 mu2 l h1 _
+    exact absurd h1 CapabilitySet.not_hasmem_empty
+  | ni_union _ _ ih1 ih2 =>
+    intro mu1 mu2 l h1 h2
+    rw [CapabilitySet.hasmem_union_iff] at h1
+    cases h1 with
+    | inl h => exact ih1 mu1 mu2 l h h2
+    | inr h => exact ih2 mu1 mu2 l h h2
+  | ni_ro =>
+    intro mu1 mu2 l h1 h2 ⟨e1, _⟩
+    rw [CapabilitySet.hasmem_cap_iff] at h1
+    obtain ⟨rfl, _⟩ := h1
+    cases e1
+  | ni_disj hne =>
+    intro mu1 mu2 l h1 h2
+    rw [CapabilitySet.hasmem_cap_iff] at h1 h2
+    obtain ⟨_, rfl⟩ := h1
+    obtain ⟨_, rfl⟩ := h2
+    exact absurd rfl hne
+
+
+
 theorem resolve_var_pair_lookup {m : Memory} {p x y : Nat}
     (h : resolve m.heap (.var (.free p)) = some (.pair (.free x) (.free y))) :
     ∃ R, m.lookup p = some (.val ⟨.pair (.free x) (.free y), .pair, R⟩) := by
@@ -6827,21 +6918,121 @@ theorem sem_typ_snd {x : BVar s .var} {C : CaptureSet s} {T1 T2 : Ty .capt s}
     pack_bound_of_ne_pack (fun _ _ _ h => nomatch h),
     witness_live_of_ne_pack (fun _ _ _ h => nomatch h)⟩
 
-theorem sem_typ_arr {xs : List (BVar s .var)} {T : Ty .capt s} {Cs : Var .var s → CaptureSet s}
+theorem sem_typ_arr {xs : List (BVar s .var)} {T : Ty .capt s} {Cs : BVar s .var → CaptureSet s}
   (hT : T.IsClosed)
-  (hcells : ∀ x ∈ xs, SemanticTyping {} Γ (Exp.var (.bound x)) (.typ (.cell (Cs (.bound x)) T)))
+  (hcells : ∀ x ∈ xs, Γ.LookupVar x (.cell (Cs x) T))
   (hsep : xs.Pairwise (fun x y =>
     SemSepCheck Γ (.var (.M .epsilon) (.bound x)) (.var (.M .epsilon) (.bound y)))) :
   SemanticTyping {} Γ (Exp.arr (xs.map .bound))
     (.typ (.arr (CaptureSet.ofVars (xs.map .bound)) T)) := by
-  sorry
+  intro env k st store hts hdsep _
+  simp only [Ty.exi_exp_denot, List.empty_eq]
+  intro hmt
+  set ls := xs.map (fun x => (env.lookup_var x).1) with hls
+  have hsubst : (Exp.arr (xs.map Var.bound)).subst (Subst.from_TypeEnv env)
+      = Exp.arr (ls.map Var.free) := by
+    simp only [Exp.subst, List.map_map, Function.comp_def, Var.subst, Subst.from_TypeEnv, hls]
+  have hcsubst : (CaptureSet.ofVars (xs.map Var.bound)).subst (Subst.from_TypeEnv env)
+      = CaptureSet.ofVars (ls.map Var.free) := by
+    rw [CaptureSet.ofVars_subst]
+    simp only [List.map_map, Function.comp_def, Var.subst, Subst.from_TypeEnv, hls]
+  -- each element is a live, store-typed cell
+  have hcellfacts : ∀ x ∈ xs, ∃ b0 ℓ0 R,
+      store.heap (env.lookup_var x).1 = some (.capability (.mcell b0 ℓ0)) ∧
+      st.lookup (env.lookup_var x).1 = some R ∧
+      (∀ (j : Fin k) (w' : StoreTyping j.val) m' e',
+        R j w' m' e' ↔ Ty.val_denot env T j.val w' m' e') := by
+    intro x hx
+    obtain ⟨fx, b0, ℓ0, R, hfx, hlk, _, hstl, himpl⟩ :=
+      cell_val_denot_inv_store (typed_env_lookup_var hts (hcells x hx))
+    cases hfx
+    exact ⟨b0, ℓ0, R, hlk, hstl, himpl⟩
+  have hcapl : ∀ l ∈ ls, ∃ c, store.heap l = some (.capability c) := by
+    intro l hl
+    obtain ⟨x, hx, rfl⟩ := List.mem_map.mp hl
+    obtain ⟨b0, ℓ0, _, hlk, _⟩ := hcellfacts x hx
+    exact ⟨_, hlk⟩
+  rw [hsubst]
+  refine ⟨Eval.eval_val Exp.IsSimpleVal.arr ?_, PrefixSafe.ans (Exp.IsAns.is_val Exp.IsVal.arr)⟩
+  intro _hguard
+  refine ⟨TraceOk.nil, st, WorldLe.refl_trunc_self _ st store, hmt, ?_,
+    pack_bound_of_ne_pack (fun _ _ _ h => nomatch h),
+    witness_live_of_ne_pack (fun _ _ _ h => nomatch h)⟩
+  simp only [Ty.exi_val_denot, Ty.val_denot]
+  refine ⟨Exp.wf_arr_of (fun l hl => by
+      obtain ⟨c, hc⟩ := hcapl l hl; rw [hc]; exact Option.some_ne_none _),
+    ?_, ls, rfl, ?_, fun l hl => ?_⟩
+  · rw [hcsubst]
+    exact CaptureSet.ofVars_free_wf (fun l hl => by
+      obtain ⟨c, hc⟩ := hcapl l hl; rw [hc]; exact Option.some_ne_none _)
+  · -- distinct cells: separated singletons cannot share a location
+    rw [hls, List.Nodup, List.pairwise_map]
+    refine List.Pairwise.imp_of_mem (fun {x y} hx hy h heq => ?_) hsep
+    have hni := h env k st store hts hdsep
+    obtain ⟨b0, ℓ0, _, hlkx, _⟩ := hcellfacts x hx
+    obtain ⟨b1, ℓ1, _, hlky, _⟩ := hcellfacts y hy
+    have h1 : ((CaptureSet.var (.M .epsilon) (Var.bound x)).denot env store).hasmem
+        (.access .epsilon) (env.lookup_var x).1 := by
+      show ((reachability_of_loc store.heap (env.lookup_var x).1).applyMut .epsilon).hasmem _ _
+      simp only [reachability_of_loc, hlkx, CapabilitySet.applyMut, CapabilitySet.singleton]
+      exact CapabilitySet.hasmem.here
+    have h2 : ((CaptureSet.var (.M .epsilon) (Var.bound y)).denot env store).hasmem
+        (.access .epsilon) (env.lookup_var x).1 := by
+      rw [heq]
+      show ((reachability_of_loc store.heap (env.lookup_var y).1).applyMut .epsilon).hasmem _ _
+      simp only [reachability_of_loc, hlky, CapabilitySet.applyMut, CapabilitySet.singleton]
+      exact CapabilitySet.hasmem.here
+    exact hni.no_eps_share _ _ _ h1 h2 ⟨rfl, rfl⟩
+  · obtain ⟨x, hx, rfl⟩ := List.mem_map.mp hl
+    obtain ⟨b0, ℓ0, R, hlk, hstl, himpl⟩ := hcellfacts x hx
+    refine ⟨b0, ℓ0, R, hlk, ?_, hstl, himpl⟩
+    change ((CaptureSet.ofVars (xs.map Var.bound)).subst (Subst.from_TypeEnv env)).ground_denot
+      store |>.covers _ _
+    rw [hcsubst, ← expand_captures_eq_ground_denot]
+    exact expand_captures_ofVars_covers hl ⟨_, hlk⟩
 
 theorem sem_typ_idx {x d : BVar s .var} {n : Nat} {C D : CaptureSet s} {T : Ty .capt s}
   (hx : SemanticTyping {} Γ (Exp.var (.bound x)) (.typ (.arr C T)))
   (hd : SemanticTyping {} Γ (Exp.var (.bound d)) (.typ (.cell D T))) :
   SemanticTyping {} Γ (Exp.idx (.bound x) n (.bound d))
     (.typ (.cell ((.var (.M .epsilon) (.bound x)) ∪ (.var (.M .epsilon) (.bound d))) T)) := by
-  sorry
+  intro env k st store hts hdsep _
+  simp only [Ty.exi_exp_denot, Exp.subst, Subst.from_TypeEnv, Var.subst, List.empty_eq]
+  intro hmt
+  rcases Nat.eq_zero_or_pos k with rfl | hkpos
+  · exact ⟨Eval.exhausted, prefixSafe_zero⟩
+  have h1 := semtyp_to_exi_exp_denot hx hts hdsep (Memory.is_compatible_empty store)
+  obtain ⟨st1, hwle1, hmt1, hval1⟩ := var_exp_denot_inv hkpos hmt h1
+  simp only [Ty.exi_val_denot, Ty.val_denot] at hval1
+  obtain ⟨_, _, ls, hres, _, hcells⟩ := hval1
+  obtain ⟨R0, hlk⟩ := resolve_var_arr_lookup hres
+  have hts1 : EnvTyping Γ env k st1 store := env_typing_worldle_down hts hwle1
+  have h2 := semtyp_to_exi_exp_denot hd hts1 hdsep (Memory.is_compatible_empty store)
+  obtain ⟨st2, hwle2, hmt2, hval2⟩ := var_exp_denot_inv hkpos hmt1 h2
+  simp only [Ty.exi_val_denot] at hval2
+  obtain ⟨fd, bd, ℓd, Rd, hfd, hlkd, _, hstd, himpld⟩ := cell_val_denot_inv_store hval2
+  cases hfd
+  have hpd : store.heap (env.lookup_var d).1 ≠ none := by rw [hlkd]; exact Option.some_ne_none _
+  refine ⟨Eval.eval_idx hlk hpd ?_, PrefixSafe.idx⟩
+  intro _hguard
+  refine ⟨TraceOk.nil, st2, WorldLe.trans (WorldLe.refl_trunc_self _ st store)
+      (WorldLe.trans hwle1 hwle2), hmt2, ?_,
+    pack_bound_of_ne_pack (fun _ _ _ h => nomatch h),
+    witness_live_of_ne_pack (fun _ _ _ h => nomatch h)⟩
+  simp only [Ty.exi_val_denot, Ty.val_denot]
+  refine ⟨CaptureSet.WfInHeap.wf_union (CaptureSet.WfInHeap.wf_var_free hlk)
+    (CaptureSet.WfInHeap.wf_var_free hlkd), ?_⟩
+  rcases List.getD_mem_or_eq ls n (env.lookup_var d).1 with hmem | heq
+  · obtain ⟨b0, ℓ0, R, hlkc, _, hstR, himpl⟩ := hcells _ hmem
+    refine ⟨_, b0, ℓ0, R, rfl, hlkc, ?_, hwle2.2 _ R hstR, himpl⟩
+    apply CapabilitySet.covers_union_left
+    exact var_ground_denot_covers_arr hres hmem ⟨_, hlkc⟩
+  · rw [heq]
+    refine ⟨_, bd, ℓd, Rd, rfl, hlkd, ?_, hstd, himpld⟩
+    apply CapabilitySet.covers_union_right
+    show ((reachability_of_loc store.heap (env.lookup_var d).1).applyMut .epsilon).covers _ _
+    simp only [reachability_of_loc, hlkd, CapabilitySet.applyMut, CapabilitySet.singleton]
+    exact CapabilitySet.covers.here CapMode.Le.refl
 
 theorem sem_typ_concat {x y : BVar s .var} {C1 C2 : CaptureSet s} {T : Ty .capt s}
   (hx : SemanticTyping {} Γ (Exp.var (.bound x)) (.typ (.arr C1 T)))
@@ -6849,7 +7040,53 @@ theorem sem_typ_concat {x y : BVar s .var} {C1 C2 : CaptureSet s} {T : Ty .capt 
   (hsep : SemSepCheck Γ (.var (.M .epsilon) (.bound x)) (.var (.M .epsilon) (.bound y))) :
   SemanticTyping {} Γ (Exp.concat (.bound x) (.bound y))
     (.typ (.arr ((.var (.M .epsilon) (.bound x)) ∪ (.var (.M .epsilon) (.bound y))) T)) := by
-  sorry
+  intro env k st store hts hdsep _
+  simp only [Ty.exi_exp_denot, Exp.subst, Subst.from_TypeEnv, Var.subst, List.empty_eq]
+  intro hmt
+  rcases Nat.eq_zero_or_pos k with rfl | hkpos
+  · exact ⟨Eval.exhausted, prefixSafe_zero⟩
+  have h1 := semtyp_to_exi_exp_denot hx hts hdsep (Memory.is_compatible_empty store)
+  obtain ⟨st1, hwle1, hmt1, hval1⟩ := var_exp_denot_inv hkpos hmt h1
+  simp only [Ty.exi_val_denot, Ty.val_denot] at hval1
+  obtain ⟨_, _, ls1, hres1, hnd1, hcells1⟩ := hval1
+  obtain ⟨R1, hlk1⟩ := resolve_var_arr_lookup hres1
+  have hts1 : EnvTyping Γ env k st1 store := env_typing_worldle_down hts hwle1
+  have h2 := semtyp_to_exi_exp_denot hy hts1 hdsep (Memory.is_compatible_empty store)
+  obtain ⟨st2, hwle2, hmt2, hval2⟩ := var_exp_denot_inv hkpos hmt1 h2
+  simp only [Ty.exi_val_denot, Ty.val_denot] at hval2
+  obtain ⟨_, _, ls2, hres2, hnd2, hcells2⟩ := hval2
+  obtain ⟨R2, hlk2⟩ := resolve_var_arr_lookup hres2
+  have hni := hsep env k st store hts hdsep
+  have hcap : ∀ l ∈ ls1 ++ ls2, ∃ c, store.heap l = some (.capability c) := by
+    intro l hl
+    rcases List.mem_append.mp hl with h | h
+    · obtain ⟨_, _, _, hlkc, _⟩ := hcells1 l h; exact ⟨_, hlkc⟩
+    · obtain ⟨_, _, _, hlkc, _⟩ := hcells2 l h; exact ⟨_, hlkc⟩
+  refine ⟨Eval.eval_concat hlk1 hlk2 ?_, PrefixSafe.concat⟩
+  intro _hguard
+  refine ⟨TraceOk.nil, st2, WorldLe.trans (WorldLe.refl_trunc_self _ st store)
+      (WorldLe.trans hwle1 hwle2), hmt2, ?_,
+    pack_bound_of_ne_pack (fun _ _ _ h => nomatch h),
+    witness_live_of_ne_pack (fun _ _ _ h => nomatch h)⟩
+  simp only [Ty.exi_val_denot, Ty.val_denot]
+  refine ⟨Exp.wf_arr_of (fun l hl => by
+      obtain ⟨c, hc⟩ := hcap l hl; rw [hc]; exact Option.some_ne_none _),
+    CaptureSet.WfInHeap.wf_union (CaptureSet.WfInHeap.wf_var_free hlk1)
+      (CaptureSet.WfInHeap.wf_var_free hlk2), ls1 ++ ls2, rfl, ?_, fun l hl => ?_⟩
+  · -- the two arrays are separated, so they share no cell
+    refine List.nodup_append.mpr ⟨hnd1, hnd2, ?_⟩
+    intro a ha b hb hab
+    subst hab
+    have hca : ∃ c, store.heap a = some (.capability c) := hcap a (List.mem_append_left _ ha)
+    exact hni.no_eps_share _ _ _ (var_ground_denot_hasmem_arr hres1 ha hca)
+      (var_ground_denot_hasmem_arr hres2 hb hca) ⟨rfl, rfl⟩
+  · rcases List.mem_append.mp hl with h | h
+    · obtain ⟨b0, ℓ0, R, hlkc, _, hstR, himpl⟩ := hcells1 l h
+      exact ⟨b0, ℓ0, R, hlkc, CapabilitySet.covers_union_left
+        (var_ground_denot_covers_arr hres1 h ⟨_, hlkc⟩), hwle2.2 _ R hstR, himpl⟩
+    · obtain ⟨b0, ℓ0, R, hlkc, _, hstR, himpl⟩ := hcells2 l h
+      exact ⟨b0, ℓ0, R, hlkc, CapabilitySet.covers_union_right
+        (var_ground_denot_covers_arr hres2 h ⟨_, hlkc⟩), hstR, himpl⟩
 
 /-! ### Substitution leaves location-only syntax unchanged -/
 
@@ -6954,48 +7191,6 @@ theorem PrefixSafe.letin_simpleval {k : Nat} {m : Memory} {v : Exp {}} {e2 : Exp
       obtain ⟨htok, hg⟩ := h _ hfresh rest (by simpa using hbud)
       exact ⟨by simpa using htok, GSeqReduce.step (GSeqStep.step_lift hv' hwf' hfresh) hg⟩
     | step_rename => cases hv
-
-/-! ### Footprints of cell lists -/
-
-/-- The expanded captures of a list of cells only reach its cells, at `ε`. -/
-theorem expand_captures_ofVars_hasmem {H : Heap} {ls : List Nat} {mu : CapMode} {l : Nat}
-    (hcells : ∀ l' ∈ ls, ∃ c, H l' = some (.capability c))
-    (h : (expand_captures H (CaptureSet.ofVars (ls.map Var.free))).hasmem mu l) :
-    l ∈ ls ∧ mu = .access .epsilon := by
-  induction ls with
-  | nil => exact absurd h CapabilitySet.not_hasmem_empty
-  | cons a ls ih =>
-    simp only [List.map_cons, CaptureSet.ofVars, expand_captures] at h
-    cases h with
-    | left h =>
-      obtain ⟨c, hc⟩ := hcells a List.mem_cons_self
-      simp only [reachability_of_loc, hc, CapabilitySet.applyAccess_M, CapabilitySet.applyMut,
-        CapabilitySet.singleton] at h
-      cases h
-      exact ⟨List.mem_cons_self, rfl⟩
-    | right h =>
-      obtain ⟨hl, hmu⟩ := ih (fun l' hl' => hcells l' (List.mem_cons_of_mem _ hl')) h
-      exact ⟨List.mem_cons_of_mem _ hl, hmu⟩
-
-theorem expand_captures_ofVars_hasmem_self {H : Heap} {ls : List Nat} {l : Nat}
-    (hl : l ∈ ls) (hcap : ∃ c, H l = some (.capability c)) :
-    (expand_captures H (CaptureSet.ofVars (ls.map Var.free))).hasmem (.access .epsilon) l := by
-  induction ls with
-  | nil => cases hl
-  | cons a ls ih =>
-    simp only [List.map_cons, CaptureSet.ofVars, expand_captures]
-    rcases List.mem_cons.mp hl with rfl | hl'
-    · apply CapabilitySet.hasmem.left
-      obtain ⟨c, hc⟩ := hcap
-      simp only [reachability_of_loc, hc, CapabilitySet.applyAccess_M, CapabilitySet.applyMut,
-        CapabilitySet.singleton]
-      exact CapabilitySet.hasmem.here
-    · exact CapabilitySet.hasmem.right (ih hl')
-
-theorem List.nodup_take_drop_disjoint {α : Type} {l : List α} (h : l.Nodup) (n : Nat) {a : α}
-    (h1 : a ∈ l.take n) (h2 : a ∈ l.drop n) : False := by
-  rw [← List.take_append_drop n l] at h
-  exact List.disjoint_of_nodup_append h h1 h2
 
 /-- **Owned split.**  Splitting consumes the array `x` (its use set carries `x` at `.drop`)
 and packs its two halves with their cell sets as two fresh, disjoint witnesses: a `pack`
@@ -7457,26 +7652,8 @@ theorem fundamental
       cases hx_closed
       exact sem_typ_split hΓ_closed (hx_ih hΓ (Exp.IsClosed.var Var.IsClosed.bound))
   case arr =>
-    rename_i xs T Cs hT hcells hsep hcells_ih
-    cases hclosed_e with
-    | arr hxs_closed =>
-      -- every element is a bound variable (closedness)
-      have hbound : ∀ x ∈ xs, ∃ bx, x = .bound bx := by
-        intro x hx; cases hxs_closed x hx; exact ⟨_, rfl⟩
-      obtain ⟨bxs, rfl⟩ : ∃ bxs : List (BVar _ .var), xs = bxs.map .bound := by
-        clear hcells hsep hcells_ih hxs_closed
-        induction xs with
-        | nil => exact ⟨[], rfl⟩
-        | cons x xs ih =>
-          obtain ⟨bx, rfl⟩ := hbound x List.mem_cons_self
-          obtain ⟨bxs, hbxs⟩ := ih (fun y hy => hbound y (List.mem_cons_of_mem _ hy))
-          exact ⟨bx :: bxs, by simp [hbxs]⟩
-      exact sem_typ_arr hT
-        (fun bx hbx => hcells_ih (.bound bx) (List.mem_map_of_mem hbx) hΓ
-          (Exp.IsClosed.var Var.IsClosed.bound))
-        ((List.pairwise_map (R := fun x y : Var .var _ =>
-          SemSepCheck _ (.var (.M .epsilon) x) (.var (.M .epsilon) y))).mp
-          (hsep.imp (fun h => fundamental_sepcheck h)))
+    rename_i xs T Cs _hΓ' hT hcells hsep
+    exact sem_typ_arr hT hcells (hsep.imp (fun h => fundamental_sepcheck h))
   case par ht1_syn ht2_syn hsep_syn ht1_ih ht2_ih =>
     cases hclosed_e with
     | par hclosed_C1 hclosed_C2 hclosed_e1 hclosed_e2 =>

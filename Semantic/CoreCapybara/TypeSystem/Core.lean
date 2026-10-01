@@ -512,14 +512,16 @@ inductive HasType : CaptureSet s -> Ctx s -> Exp s -> Ty .exi s -> Prop where
   HasType {} Γ (.var y) (.typ .unit) ->
   ------------------------------------------------
   HasType (.var (.M .epsilon) x) Γ (.app x y) (.typ .unit)
-| arr {xs : List (Var .var s)} {T : Ty .capt s} {Cs : Var .var s → CaptureSet s} :
+| arr {xs : List (BVar s .var)} {T : Ty .capt s} {Cs : BVar s .var → CaptureSet s} :
+  Γ.IsClosed ->
   T.IsClosed ->
-  -- every element is a cell holding `T`
-  (∀ x ∈ xs, HasType {} Γ (.var x) (.typ (.cell (Cs x) T))) ->
+  -- every element is a cell (in the context) holding `T`
+  (∀ x ∈ xs, Γ.LookupVar x (.cell (Cs x) T)) ->
   -- the elements are pairwise separated, hence denote distinct cells
-  xs.Pairwise (fun x y => SepCheck Γ (.var (.M .epsilon) x) (.var (.M .epsilon) y)) ->
+  xs.Pairwise (fun x y =>
+    SepCheck Γ (.var (.M .epsilon) (.bound x)) (.var (.M .epsilon) (.bound y))) ->
   ----------------------------
-  HasType {} Γ (.arr xs) (.typ (.arr (CaptureSet.ofVars xs) T))
+  HasType {} Γ (.arr (xs.map .bound)) (.typ (.arr (CaptureSet.ofVars (xs.map .bound)) T))
 | idx {C D : CaptureSet s} {T : Ty .capt s} :
   HasType {} Γ (.var x) (.typ (.arr C T)) ->
   HasType {} Γ (.var d) (.typ (.cell D T)) ->

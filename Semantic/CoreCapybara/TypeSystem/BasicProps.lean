@@ -506,8 +506,10 @@ theorem HasType.exp_is_closed
     constructor
     · cases ih_x; assumption
     · cases ih_y; assumption
-  case arr ih =>
-    exact Exp.IsClosed.arr (fun x hx => by cases ih x hx; assumption)
+  case arr =>
+    refine Exp.IsClosed.arr (fun x hx => ?_)
+    obtain ⟨bx, _, rfl⟩ := List.mem_map.mp hx
+    exact Var.IsClosed.bound
   case idx ih_x ih_d =>
     cases ih_x; cases ih_d
     exact Exp.IsClosed.idx (by assumption) (by assumption)
@@ -548,10 +550,11 @@ theorem HasType.type_is_closed
   (ht : HasType C Γ e E) :
   E.IsClosed := by
   induction ht
-  case arr hT hcells _ _ =>
+  case arr hT _ _ =>
     refine Ty.IsClosed.typ (Ty.IsClosed.arr (CaptureSet.ofVars_closed ?_) hT)
     intro x hx
-    exact HasType.typed_var_closed (hcells x hx)
+    obtain ⟨bx, _, rfl⟩ := List.mem_map.mp hx
+    exact Var.IsClosed.bound
   case idx ht_x ht_d _ ih_d =>
     cases ih_d with | typ h => cases h with | cell _ hT =>
     exact Ty.IsClosed.typ (Ty.IsClosed.cell

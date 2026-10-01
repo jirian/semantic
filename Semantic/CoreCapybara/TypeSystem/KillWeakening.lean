@@ -3072,12 +3072,13 @@ theorem HasType.erase_kill {s : Sig} {C : CaptureSet s} {Γ : Ctx s} {e : Exp s}
     simp only [CaptureSet.eraseCVars_var, Exp.eraseCVars, Ty.eraseCVars] at hx' hy' ⊢
     exact .invoke (by simpa only [CaptureSet.eraseCVars_var] using hacc.eraseCVars (K := K))
       hx' hy'
-  | @arr s0 Γ0 xs T Cs hT hcells hsep ih =>
+  | @arr s0 Γ0 xs T Cs hΓ hT hcells hsep =>
     simp only [Exp.eraseCVars, Ty.eraseCVars, CaptureSet.eraseCVars_ofVars]
-    refine HasType.arr (Cs := fun x => (Cs x).eraseCVars K) (hT.eraseCVars K) ?_ ?_
+    refine HasType.arr (Cs := fun x => (Cs x).eraseCVars K)
+      (Ctx.kill_peaks_cs_isClosed (hΓ.eraseCVars K)) (hT.eraseCVars K) ?_ ?_
     · intro x hx
-      have h' := ih x hx K
-      simpa only [Exp.eraseCVars, Ty.eraseCVars] using h'
+      have h' := ((hcells x hx).eraseCVars (K := K)).kill_peaks_cs K
+      simpa only [Ty.eraseCVars] using h'
     · exact hsep.imp (fun h => by simpa only [CaptureSet.eraseCVars_var] using h.erase_kill K)
   | idx hx hd ihx ihd =>
     have hx' := ihx K
