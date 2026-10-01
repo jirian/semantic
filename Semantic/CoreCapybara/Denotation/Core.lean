@@ -714,6 +714,8 @@ def Ty.captSkelSize : Ty .capt s → Nat
 | .reader _ T => 1 + Ty.captSkelSize T
 | .unit => 1
 | .bool => 1
+| .arr _ T => 1 + Ty.captSkelSize T
+| .pair _ T1 T2 => 1 + Ty.captSkelSize T1 + Ty.captSkelSize T2
 
 def Ty.exiSkelSize : Ty .exi s → Nat
 | .exi _ T => 1 + Ty.captSkelSize T
@@ -750,6 +752,12 @@ theorem Ty.captSkelSize_rename {T : Ty .capt s1} {f : Rename s1 s2} :
   | reader cs T =>
       simp only [Ty.rename, Ty.captSkelSize]
       rw [Ty.captSkelSize_rename (T := T)]
+  | arr cs T =>
+      simp only [Ty.rename, Ty.captSkelSize]
+      rw [Ty.captSkelSize_rename (T := T)]
+  | pair cs T1 T2 =>
+      simp only [Ty.rename, Ty.captSkelSize]
+      rw [Ty.captSkelSize_rename (T := T1), Ty.captSkelSize_rename (T := T2)]
   | unit => simp [Ty.rename, Ty.captSkelSize]
   | bool => simp [Ty.rename, Ty.captSkelSize]
 
@@ -828,6 +836,15 @@ theorem Ty.captSkelSize_subst {T : Ty .capt s1} {σ : Subst s1 s2}
       simp only [Ty.subst, Ty.captSkelSize]
       have h1 := Ty.captSkelSize_subst (T := T) hσ
       simp [h1]
+  | arr cs T =>
+      simp only [Ty.subst, Ty.captSkelSize]
+      have h1 := Ty.captSkelSize_subst (T := T) hσ
+      simp [h1]
+  | pair cs T1 T2 =>
+      simp only [Ty.subst, Ty.captSkelSize]
+      have h1 := Ty.captSkelSize_subst (T := T1) hσ
+      have h2 := Ty.captSkelSize_subst (T := T2) hσ
+      simp [h1, h2]
   | unit => simp [Ty.subst, Ty.captSkelSize]
   | bool => simp [Ty.subst, Ty.captSkelSize]
 
@@ -893,6 +910,29 @@ def Ty.val_denot (env : TypeEnv s) (T : Ty .capt s)
       st.lookup l = some R ∧
       (∀ (j : Fin k) (w' : StoreTyping j.val) (m' : Memory) (e' : Exp {}),
         R j w' m' e' ↔ Ty.val_denot env Tc j.val w' m' e')
+  | .arr cs Tc =>
+    -- An array is a list of *distinct* mutable cells, each covered by `cs` and store-typed
+    -- with the content type `Tc` (exactly as a `cell`).  Distinctness is what makes the
+    -- two halves of a `split` denote disjoint footprints.
+    e.WfInHeap m.heap ∧
+    (cs.subst (Subst.from_TypeEnv env)).WfInHeap m.heap ∧
+    ∃ ls : List Nat,
+      resolve m.heap e = some (.arr (ls.map Var.free)) ∧
+      ls.Nodup ∧
+      (∀ l ∈ ls, ∃ n0 ℓ0 R,
+        m.lookup l = some (.capability (.mcell n0 ℓ0)) ∧
+        (cs.denot env m).covers (.access .epsilon) l ∧
+        st.lookup l = some R ∧
+        (∀ (j : Fin k) (w' : StoreTyping j.val) (m' : Memory) (e' : Exp {}),
+          R j w' m' e' ↔ Ty.val_denot env Tc j.val w' m' e'))
+  | .pair cs T1 T2 =>
+    e.WfInHeap m.heap ∧
+    (cs.subst (Subst.from_TypeEnv env)).WfInHeap m.heap ∧
+    ∃ x y,
+      resolve m.heap e = some (.pair (.free x) (.free y)) ∧
+      expand_captures m.heap (CaptureSet.ofVars [.free x, .free y]) ⊆ (cs.denot env m) ∧
+      Ty.val_denot env T1 k st m (.var (.free x)) ∧
+      Ty.val_denot env T2 k st m (.var (.free y))
   | .arrow T1 cs T2 =>
     e.WfInHeap m.heap ∧
     (cs.subst (Subst.from_TypeEnv env)).WfInHeap m.heap ∧
@@ -1924,7 +1964,7 @@ theorem from_TypeEnv_wf_in_heap
               exact Exp.WfInHeap.wf_var (Var.WfInHeap.wf_free
                 (by simpa [Memory.lookup] using hlookup))
             | cap _ | reader _ | arrow _ _ _ | poly _ _ _ | cpoly _ _ _
-            | consumer _ _ _ | modal _ _ _ =>
+            | consumer _ _ _ | modal _ _ _ | arr _ _ | pair _ _ _ =>
               unfold Ty.val_denot at htype
               exact htype.1
           cases hwf with
@@ -2086,6 +2126,22 @@ theorem resolve_val
   (hval : v.IsVal) :
   resolve heap v = some v := by
   cases hval <;> rfl
+
+/-- A well-formed expression resolves to a well-formed value. -/
+theorem Memory.resolve_wf {m : Memory} {e v : Exp {}} (hwf : e.WfInHeap m.heap)
+    (hr : resolve m.heap e = some v) : v.WfInHeap m.heap := by
+  cases e with
+  | var x =>
+    cases x with
+    | bound b => cases b
+    | free n =>
+      simp only [resolve] at hr
+      split at hr
+      · rename_i hv heq
+        cases hr
+        exact Memory.wf_lookup (m := m) (l := n) heq
+      · cases hr
+  | _ => simp only [resolve] at hr; cases hr; exact hwf
 
 theorem resolve_var_heap_trans
   (hheap : heap x = some (.val v)) :
@@ -2380,7 +2436,7 @@ theorem val_denot_is_transparent {env : TypeEnv s}
     rw [resolve_var_heap_trans hx']
     exact ⟨Exp.WfInHeap.wf_var (Var.WfInHeap.wf_free hx'), hwf_cs,
       label, b0, ℓ0, R, hres, hlookup, hcov, hstR, himpl⟩
-  | poly T1 cs T2 | cpoly _ cs _ | consumer _ cs _ =>
+  | poly T1 cs T2 | cpoly _ cs _ | consumer _ cs _ | arr cs _ | pair cs _ _ =>
     intro m x v hx ht
     unfold Ty.val_denot at ht ⊢
     have hx' : m.heap x = some (.val v) := by simpa [Memory.lookup] using hx
@@ -2426,6 +2482,12 @@ theorem val_denot_is_bool_independent {env : TypeEnv s}
     simp
   | reader cs =>
     -- btrue and bfalse cannot resolve to a reader, so both sides are False
+    unfold Ty.val_denot
+    simp [resolve]
+  | arr cs =>
+    unfold Ty.val_denot
+    simp [resolve]
+  | pair cs =>
     unfold Ty.val_denot
     simp [resolve]
   | arrow T1 cs T2 =>
@@ -2805,6 +2867,37 @@ def val_denot_is_monotonic {env : TypeEnv s}
           label, b', ℓ', R, resolve_monotonic hmem hres, hc',
           by rw [← capture_set_denot_is_monotonic (C := cs) (ρ := env) hwf_cs hmem]; exact hcov,
           hstR, himpl⟩
+  | arr cs Tc =>
+    intro m1 m2 e hmem ht
+    unfold Ty.val_denot at ht ⊢
+    obtain ⟨hwf_e, hwf_cs, ls, hres, hnd, hcells⟩ := ht
+    have hcs_eq := capture_set_denot_is_monotonic (C := cs) (ρ := env) hwf_cs hmem
+    refine ⟨Exp.wf_monotonic hmem hwf_e, CaptureSet.wf_monotonic hmem hwf_cs, ls,
+      resolve_monotonic hmem hres, hnd, fun l hl => ?_⟩
+    obtain ⟨b0, ℓ0, R, hlookup, hcov, hstR, himpl⟩ := hcells l hl
+    have hsub : m2.heap.subsumes m1.heap := hmem
+    obtain ⟨c', hc', hsub_c⟩ := hsub l (Cell.capability (.mcell b0 ℓ0)) hlookup
+    cases c' with
+    | val v => simp [Cell.subsumes] at hsub_c
+    | masked => simp [Cell.subsumes] at hsub_c
+    | capability info =>
+      cases info with
+      | basic => simp [Cell.subsumes] at hsub_c
+      | mcell b' ℓ' =>
+        exact ⟨b', ℓ', R, hc', by rw [← hcs_eq]; exact hcov, hstR, himpl⟩
+  | pair cs T1 T2 =>
+    intro m1 m2 e hmem ht
+    unfold Ty.val_denot at ht ⊢
+    obtain ⟨hwf_e, hwf_cs, x, y, hres, hsub, h1, h2⟩ := ht
+    have hcs_eq := capture_set_denot_is_monotonic (C := cs) (ρ := env) hwf_cs hmem
+    cases Memory.resolve_wf hwf_e hres with
+    | wf_pair hx hy =>
+      have hexp := expand_captures_monotonic hmem _
+        (CaptureSet.ofVars_wf (Var.wf_pair_list hx hy))
+      exact ⟨Exp.wf_monotonic hmem hwf_e, CaptureSet.wf_monotonic hmem hwf_cs, x, y,
+        resolve_monotonic hmem hres, by rw [hexp, ← hcs_eq]; exact hsub,
+        val_denot_is_monotonic henv T1 k st hmem h1,
+        val_denot_is_monotonic henv T2 k st hmem h2⟩
   | arrow T1 cs T2 =>
     intro m1 m2 e hmem ht
     unfold Ty.val_denot at ht ⊢
@@ -2949,6 +3042,34 @@ def val_denot_worldle_mono {env : TypeEnv s} (henv : env.IsMonotonic)
             -- store-typing persistence; the biconditional agreement carries over VERBATIM
             -- (it never mentions the ambient world → growth-stable).
             hwle.2 l R hstR, himpl⟩
+  | .arr cs Tc => by
+      unfold Ty.val_denot at ht ⊢
+      obtain ⟨hwf_e, hwf_cs, ls, hres, hnd, hcells⟩ := ht
+      have hmem : m2.heap.subsumes m1.heap := hwle.1
+      have hcs_eq := capture_set_denot_is_monotonic (C := cs) (ρ := env) hwf_cs hwle.1
+      refine ⟨Exp.wf_monotonic hwle.1 hwf_e, CaptureSet.wf_monotonic hwle.1 hwf_cs, ls,
+        resolve_monotonic hwle.1 hres, hnd, fun l hl => ?_⟩
+      obtain ⟨b0, ℓ0, R, hlookup, hcov, hstR, himpl⟩ := hcells l hl
+      obtain ⟨c', hc', hsub_c⟩ := hmem l (Cell.capability (.mcell b0 ℓ0)) hlookup
+      cases c' with
+      | val v => simp [Cell.subsumes] at hsub_c
+      | masked => simp [Cell.subsumes] at hsub_c
+      | capability info =>
+        cases info with
+        | basic => simp [Cell.subsumes] at hsub_c
+        | mcell b' ℓ' =>
+          exact ⟨b', ℓ', R, hc', by rw [← hcs_eq]; exact hcov, hwle.2 l R hstR, himpl⟩
+  | .pair cs T1 T2 => by
+      unfold Ty.val_denot at ht ⊢
+      obtain ⟨hwf_e, hwf_cs, x, y, hres, hsub, h1, h2⟩ := ht
+      have hcs_eq := capture_set_denot_is_monotonic (C := cs) (ρ := env) hwf_cs hwle.1
+      cases Memory.resolve_wf hwf_e hres with
+      | wf_pair hx hy =>
+        have hexp := expand_captures_monotonic hwle.1 _
+          (CaptureSet.ofVars_wf (Var.wf_pair_list hx hy))
+        exact ⟨Exp.wf_monotonic hwle.1 hwf_e, CaptureSet.wf_monotonic hwle.1 hwf_cs, x, y,
+          resolve_monotonic hwle.1 hres, by rw [hexp, ← hcs_eq]; exact hsub,
+          val_denot_worldle_mono henv T1 hwle _ h1, val_denot_worldle_mono henv T2 hwle _ h2⟩
   | .reader cs Tc => by
       unfold Ty.val_denot at ht ⊢
       obtain ⟨hwf_e, hwf_cs, label, b0, ℓ0, R, hres, hlookup, hcov, hstR, himpl⟩ := ht
@@ -3076,6 +3197,19 @@ def val_denot_down_trunc {env : TypeEnv s}
         by rw [WP.World.trunc_lookup, hstR]; rfl, ?_⟩
       intro i w' m' e'
       exact hbicond ⟨i.val, Nat.lt_of_lt_of_le i.isLt hjk⟩ w' m' e'
+  | .arr cs Tc => by
+      unfold Ty.val_denot at ht ⊢
+      obtain ⟨hwf_e, hwf_cs, ls, hres, hnd, hcells⟩ := ht
+      refine ⟨hwf_e, hwf_cs, ls, hres, hnd, fun l hl => ?_⟩
+      obtain ⟨n0, ℓ0, R, hlk, hcov, hstR, hbicond⟩ := hcells l hl
+      refine ⟨n0, ℓ0, _, hlk, hcov, by rw [WP.World.trunc_lookup, hstR]; rfl, ?_⟩
+      intro i w' m' e'
+      exact hbicond ⟨i.val, Nat.lt_of_lt_of_le i.isLt hjk⟩ w' m' e'
+  | .pair cs T1 T2 => by
+      unfold Ty.val_denot at ht ⊢
+      obtain ⟨hwf_e, hwf_cs, x, y, hres, hsub, h1, h2⟩ := ht
+      exact ⟨hwf_e, hwf_cs, x, y, hres, hsub, val_denot_down_trunc henv_dc T1 hjk _ h1,
+        val_denot_down_trunc henv_dc T2 hjk _ h2⟩
   | .reader cs Tc => by
       unfold Ty.val_denot at ht ⊢
       obtain ⟨hwf_e, hwf_cs, label, n0, ℓ0, R, hres, hlk, hcov, hstR, hbicond⟩ := ht
@@ -3327,6 +3461,8 @@ lemma simple_ans_from_resolve
   | consumer _ _ _ => exact Exp.IsSimpleAns.is_simple_val Exp.IsSimpleVal.consumer
   | boxed _ _ _ => exact Exp.IsSimpleAns.is_simple_val Exp.IsSimpleVal.boxed
   | reader _ => exact Exp.IsSimpleAns.is_simple_val Exp.IsSimpleVal.reader
+  | arr _ => exact Exp.IsSimpleAns.is_simple_val Exp.IsSimpleVal.arr
+  | pair _ _ => exact Exp.IsSimpleAns.is_simple_val Exp.IsSimpleVal.pair
   | _ => simp only [resolve] at hresolve; cases hresolve; cases hv
 
 lemma wf_from_resolve_unit
@@ -3432,6 +3568,12 @@ theorem val_denot_implies_wf {env : TypeEnv s}
   | modal cs Ψ T =>
     unfold Ty.val_denot at hdenot
     exact hdenot.1
+  | arr cs T =>
+    unfold Ty.val_denot at hdenot
+    exact hdenot.1
+  | pair cs T1 T2 =>
+    unfold Ty.val_denot at hdenot
+    exact hdenot.1
 
 /-- Value denotation implies simple answer for all types. -/
 theorem val_denot_implies_simple_ans {env : TypeEnv s}
@@ -3463,6 +3605,14 @@ theorem val_denot_implies_simple_ans {env : TypeEnv s}
     simp only [Ty.val_denot] at hdenot
     obtain ⟨_, _, _, _, _, _, hres, _⟩ := hdenot
     exact simple_ans_from_resolve hres Exp.IsSimpleVal.reader
+  | arr cs T =>
+    simp only [Ty.val_denot] at hdenot
+    obtain ⟨_, _, _, hres, _⟩ := hdenot
+    exact simple_ans_from_resolve hres Exp.IsSimpleVal.arr
+  | pair cs T1 T2 =>
+    simp only [Ty.val_denot] at hdenot
+    obtain ⟨_, _, _, _, hres, _⟩ := hdenot
+    exact simple_ans_from_resolve hres Exp.IsSimpleVal.pair
   | cap cs =>
     unfold Ty.val_denot at hdenot
     obtain ⟨_, _, _, heq, _, _⟩ := hdenot
@@ -3562,6 +3712,67 @@ private theorem resolve_reachability_subset_of_resolve_aux
     simp only [resolve] at hresolve
     cases hresolve
     exact CapabilitySet.Subset.refl
+
+/-! ### Footprints of arrays -/
+
+/-- Every cell of an array is covered (at `ε`) by the array's expanded captures. -/
+theorem expand_captures_ofVars_covers {H : Heap} {ls : List Nat} {l : Nat}
+    (hl : l ∈ ls) (hcap : ∃ c, H l = some (.capability c)) :
+    (expand_captures H (CaptureSet.ofVars (ls.map Var.free))).covers (.access .epsilon) l := by
+  induction ls with
+  | nil => cases hl
+  | cons a ls ih =>
+    simp only [List.map_cons, CaptureSet.ofVars, expand_captures]
+    rcases List.mem_cons.mp hl with rfl | hl'
+    · apply CapabilitySet.covers.left
+      obtain ⟨c, hc⟩ := hcap
+      simp only [reachability_of_loc, hc, CapabilitySet.applyAccess_M, CapabilitySet.applyMut,
+        CapabilitySet.singleton]
+      exact CapabilitySet.covers.here CapMode.Le.refl
+    · exact CapabilitySet.covers.right (ih hl')
+
+/-- An array whose cells are all covered by `C` has its expanded captures within `C`. -/
+theorem expand_captures_cells_subset {H : Heap} {ls : List Nat} {C : CapabilitySet}
+    (h : ∀ l ∈ ls, (∃ c, H l = some (.capability c)) ∧ C.covers (.access .epsilon) l) :
+    expand_captures H (CaptureSet.ofVars (ls.map Var.free)) ⊆ C := by
+  induction ls with
+  | nil => exact CapabilitySet.Subset.empty
+  | cons a ls ih =>
+    obtain ⟨⟨c, hc⟩, hcov⟩ := h a List.mem_cons_self
+    simp only [List.map_cons, CaptureSet.ofVars, expand_captures]
+    refine CapabilitySet.Subset.union_left ?_
+      (ih (fun l' hl' => h l' (List.mem_cons_of_mem _ hl')))
+    simp only [reachability_of_loc, hc, CapabilitySet.applyAccess_M, CapabilitySet.applyMut]
+    exact CapabilitySet.covers_eps_imp_singleton_eps_subset hcov
+
+/-- A variable that resolves to an array covers each of the array's cells. -/
+theorem var_ground_denot_covers_arr {m : Memory} {n l : Nat} {ls : List Nat}
+    (hres : resolve m.heap (.var (.free n)) = some (.arr (ls.map Var.free)))
+    (hl : l ∈ ls) (hcap : ∃ c, m.heap l = some (.capability c)) :
+    ((CaptureSet.var (.M .epsilon) (.free n)).ground_denot m).covers (.access .epsilon) l := by
+  simp only [resolve] at hres
+  split at hres
+  · rename_i v hcell
+    simp only [Option.some.injEq] at hres
+    simp only [CaptureSet.ground_denot, CapabilitySet.applyAccess_M, CapabilitySet.applyMut]
+    rw [reachability_of_loc_eq_resolve_reachability m n v hcell, hres]
+    simp only [resolve_reachability]
+    exact expand_captures_ofVars_covers hl hcap
+  · cases hres
+
+/-- A variable that resolves to a pair reaches exactly the pair's components. -/
+theorem var_ground_denot_pair {m : Memory} {n x y : Nat}
+    (hres : resolve m.heap (.var (.free n)) = some (.pair (.free x) (.free y))) :
+    (CaptureSet.var (.M .epsilon) (.free n)).ground_denot m
+      = expand_captures m.heap (CaptureSet.ofVars [.free x, .free y]) := by
+  simp only [resolve] at hres
+  split at hres
+  · rename_i v hcell
+    simp only [Option.some.injEq] at hres
+    simp only [CaptureSet.ground_denot, CapabilitySet.applyAccess_M, CapabilitySet.applyMut]
+    rw [reachability_of_loc_eq_resolve_reachability m n v hcell, hres]
+    rfl
+  · cases hres
 
 set_option maxHeartbeats 400000 in
 -- This is a large case analysis proof.
@@ -3666,6 +3877,21 @@ theorem val_denot_enforces_captures {T : Ty .capt s}
                   CapabilitySet.covers_imp_singleton_subset hcov
       | bound bx => cases bx
     | _ => simp [resolve] at hres
+  | arr cs T =>
+    simp only [Ty.captureSet]
+    simp only [Ty.val_denot] at ht
+    obtain ⟨_, _, ls, hres, _, hcells⟩ := ht
+    refine CapabilitySet.Subset.trans (resolve_reachability_subset_of_resolve_aux hres) ?_
+    simp only [resolve_reachability]
+    exact expand_captures_cells_subset (fun l hl => by
+      obtain ⟨n0, ℓ0, _, hlk, hcov, _⟩ := hcells l hl
+      exact ⟨⟨_, hlk⟩, hcov⟩)
+  | pair cs T1 T2 =>
+    simp only [Ty.captureSet]
+    simp only [Ty.val_denot] at ht
+    obtain ⟨_, _, x, y, hres, hsub, _, _⟩ := ht
+    refine CapabilitySet.Subset.trans (resolve_reachability_subset_of_resolve_aux hres) ?_
+    simpa only [resolve_reachability] using hsub
   | arrow T1 cs T2 =>
     simp only [Ty.captureSet]
     simp only [Ty.val_denot] at ht
@@ -4073,6 +4299,35 @@ theorem val_denot_refine {env : TypeEnv s} {T : Ty .capt s} {x : Var .var s}
         | capability cap =>
           exact CapabilitySet.covers.here CapMode.Le.refl
         | masked => simp [hcell] at hlookup
+  | arr cs T =>
+    simp only [Ty.refineCaptureSet, Ty.val_denot] at hdenot ⊢
+    obtain ⟨hwf_e, hwf_cs, ls, hres, hnd, hcells⟩ := hdenot
+    refine ⟨hwf_e, ?_, ls, hres, hnd, fun l hl => ?_⟩
+    · simp only [CaptureSet.subst]
+      cases hwf_e with
+      | wf_var hwf_var => exact CaptureSet.wf_of_var hwf_var
+    · obtain ⟨n0, ℓ0, R, hlk, _, hstR, himpl⟩ := hcells l hl
+      refine ⟨n0, ℓ0, R, hlk, ?_, hstR, himpl⟩
+      simp only [CaptureSet.denot, CaptureSet.subst]
+      cases hv : x.subst (Subst.from_TypeEnv env) with
+      | bound bx => cases bx
+      | free n =>
+        rw [hv] at hres
+        exact var_ground_denot_covers_arr hres hl ⟨_, hlk⟩
+  | pair cs T1 T2 =>
+    simp only [Ty.refineCaptureSet, Ty.val_denot] at hdenot ⊢
+    obtain ⟨hwf_e, hwf_cs, a, b, hres, hsub, h1, h2⟩ := hdenot
+    refine ⟨hwf_e, ?_, a, b, hres, ?_, h1, h2⟩
+    · simp only [CaptureSet.subst]
+      cases hwf_e with
+      | wf_var hwf_var => exact CaptureSet.wf_of_var hwf_var
+    · simp only [CaptureSet.denot, CaptureSet.subst]
+      cases hv : x.subst (Subst.from_TypeEnv env) with
+      | bound bx => cases bx
+      | free n =>
+        rw [hv] at hres
+        rw [var_ground_denot_pair hres]
+        exact CapabilitySet.Subset.refl
   | reader cs =>
     simp only [Ty.refineCaptureSet, Ty.val_denot] at hdenot ⊢
     obtain ⟨hwf_e, hwf_cs, loc, label, ℓ0, R, hres, hlookup, hcov, hstR, himpl⟩ := hdenot
@@ -4235,6 +4490,24 @@ theorem pure_ty_enforce_pure {T : Ty .capt s}
     exact CapabilitySet.Subset.trans
       (resolve_reachability_subset_of_resolve hres)
       (by simpa [resolve_reachability] using hpure.denot_empty.subset_of_subset hR0_sub)
+  case arr cs T =>
+    simp only [Ty.captureSet] at hpure
+    simp only [Ty.val_denot] at hdenot
+    obtain ⟨_, _, ls, hres, _, hcells⟩ := hdenot
+    have hsub : expand_captures m.heap (CaptureSet.ofVars (ls.map Var.free)) ⊆ cs.denot env m :=
+      expand_captures_cells_subset (fun l hl => by
+        obtain ⟨n0, ℓ0, _, hlk, hcov, _⟩ := hcells l hl
+        exact ⟨⟨_, hlk⟩, hcov⟩)
+    exact CapabilitySet.Subset.trans
+      (resolve_reachability_subset_of_resolve hres)
+      (by simpa [resolve_reachability] using hpure.denot_empty.subset_of_subset hsub)
+  case pair cs T1 T2 =>
+    simp only [Ty.captureSet] at hpure
+    simp only [Ty.val_denot] at hdenot
+    obtain ⟨_, _, x, y, hres, hsub, _, _⟩ := hdenot
+    exact CapabilitySet.Subset.trans
+      (resolve_reachability_subset_of_resolve hres)
+      (by simpa [resolve_reachability] using hpure.denot_empty.subset_of_subset hsub)
 
 namespace TypeEnv.HasSepDom
 
