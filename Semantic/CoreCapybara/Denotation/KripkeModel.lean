@@ -180,6 +180,8 @@ theorem kdenot_mono (T : Ty .capt {}) {k : Nat} {st1 st2 m1 m2} (hw : WorldLe st
   | .cpoly _ _ _ => by unfold kdenot at ht ⊢; exact ht
   | .consumer _ _ _ => by unfold kdenot at ht ⊢; exact ht
   | .modal _ _ _ => by unfold kdenot at ht ⊢; exact ht
+  | .arr _ _ => by unfold kdenot at ht ⊢; exact ht
+  | .pair _ _ _ => by unfold kdenot at ht ⊢; exact ht
 termination_by sizeOf T
 decreasing_by all_goals (simp_wf; try omega)
 
@@ -210,6 +212,8 @@ theorem kdenot_down (st : StoreTyping) (T : Ty .capt {}) {k : Nat} (m : Memory)
   | .cpoly _ _ _ => by unfold kdenot at ht ⊢; exact ht
   | .consumer _ _ _ => by unfold kdenot at ht ⊢; exact ht
   | .modal _ _ _ => by unfold kdenot at ht ⊢; exact ht
+  | .arr _ _ => by unfold kdenot at ht ⊢; exact ht
+  | .pair _ _ _ => by unfold kdenot at ht ⊢; exact ht
 termination_by sizeOf T
 decreasing_by all_goals (simp_wf; try omega)
 

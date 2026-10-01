@@ -128,6 +128,7 @@ theorem GSeqStep.touched_cap_result {t : Trace} {m m' : Memory} {e e' : Exp {}}
     ∀ l, Trace.touched t l → ∃ c, m'.lookup l = some (.capability c) := by
   induction h with
   | step_apply _ | step_tapply _ | step_capply _ | step_consumer_app _ | step_unwrap _
+  | step_idx _ _ | step_concat _ _ | step_split _ | step_fst _ | step_snd _
   | step_cond_var_true _ | step_cond_var_false _ | step_alloc _ _ | step_par_join _ _
   | step_rename | step_lift _ _ _ | step_unpack =>
     intro l ht; simp only [Trace.touched] at ht
