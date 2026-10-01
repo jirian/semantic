@@ -6851,6 +6851,152 @@ theorem sem_typ_concat {x y : BVar s .var} {C1 C2 : CaptureSet s} {T : Ty .capt 
     (.typ (.arr ((.var (.M .epsilon) (.bound x)) ∪ (.var (.M .epsilon) (.bound y))) T)) := by
   sorry
 
+/-! ### Substitution leaves location-only syntax unchanged -/
+
+theorem Exp.arr_free_subst {ls : List Nat} {σ : Subst s1 s2} :
+    (Exp.arr (ls.map Var.free) : Exp s1).subst σ = Exp.arr (ls.map Var.free) := by
+  simp only [Exp.subst, List.map_map, Function.comp_def, Var.subst]
+
+theorem CaptureSet.ofVars_free_subst {ls : List Nat} {σ : Subst s1 s2} :
+    (CaptureSet.ofVars (ls.map Var.free) : CaptureSet s1).subst σ
+      = CaptureSet.ofVars (ls.map Var.free) := by
+  rw [CaptureSet.ofVars_subst]
+  simp only [List.map_map, Function.comp_def, Var.subst]
+
+theorem Exp.pack2_free_subst {ls1 ls2 : List Nat} {x : Var .var s1} {σ : Subst s1 s2} :
+    (Exp.pack ⟨[CaptureSet.ofVars (ls1.map Var.free), CaptureSet.ofVars (ls2.map Var.free)], rfl⟩
+        x : Exp s1).subst σ
+      = Exp.pack ⟨[CaptureSet.ofVars (ls1.map Var.free), CaptureSet.ofVars (ls2.map Var.free)],
+          rfl⟩ (x.subst σ) := by
+  simp only [Exp.subst]
+  congr 1
+  apply List.Vector.toList_injective
+  simp only [List.Vector.toList_map, List.Vector.toList_mk, List.map_cons, List.map_nil,
+    CaptureSet.ofVars_free_subst]
+  rfl
+
+/-- Opening the first binder of `splitExp`'s continuation. -/
+theorem Exp.splitExp_open1 {ls : List Nat} {n l1 : Nat} :
+    (Exp.letin (.arr ((ls.drop n).map .free))
+      (.letin (.pair (.bound (.there .here)) (.bound .here))
+        (.pack ⟨[CaptureSet.ofVars ((ls.take n).map .free),
+                 CaptureSet.ofVars ((ls.drop n).map .free)], rfl⟩ (.bound .here)))
+      : Exp ({},x)).subst (Subst.openVar (.free l1))
+    = Exp.letin (.arr ((ls.drop n).map .free))
+        (.letin (.pair (.free l1) (.bound .here))
+          (.pack ⟨[CaptureSet.ofVars ((ls.take n).map .free),
+                   CaptureSet.ofVars ((ls.drop n).map .free)], rfl⟩ (.bound .here))) := by
+  rw [Exp.subst, Exp.arr_free_subst, Exp.subst, Exp.pack2_free_subst]
+  rfl
+
+theorem Exp.splitExp_open2 {ls : List Nat} {n l1 l2 : Nat} :
+    (Exp.letin (.pair (.free l1) (.bound .here))
+        (.pack ⟨[CaptureSet.ofVars ((ls.take n).map .free),
+                 CaptureSet.ofVars ((ls.drop n).map .free)], rfl⟩ (.bound .here))
+      : Exp ({},x)).subst (Subst.openVar (.free l2))
+    = Exp.letin (.pair (.free l1) (.free l2))
+        (.pack ⟨[CaptureSet.ofVars ((ls.take n).map .free),
+                 CaptureSet.ofVars ((ls.drop n).map .free)], rfl⟩ (.bound .here)) := by
+  rw [Exp.subst, Exp.pack2_free_subst]
+  rfl
+
+theorem Exp.splitExp_open3 {ls : List Nat} {n l3 : Nat} :
+    (Exp.pack ⟨[CaptureSet.ofVars ((ls.take n).map .free),
+                CaptureSet.ofVars ((ls.drop n).map .free)], rfl⟩ (.bound .here)
+      : Exp ({},x)).subst (Subst.openVar (.free l3))
+    = Exp.pack ⟨[CaptureSet.ofVars ((ls.take n).map .free),
+                 CaptureSet.ofVars ((ls.drop n).map .free)], rfl⟩ (.free l3) := by
+  rw [Exp.pack2_free_subst]
+  rfl
+
+/-! ### Generic: `let` of a simple value -/
+
+theorem Eval.eval_letin_simpleval {k : Nat} {m : Memory} {v : Exp {}} {e2 : Exp ({},x)}
+    {Q : Tpost} (hv : v.IsSimpleVal) (hwf : v.WfInHeap m.heap)
+    (h : ∀ l' (hfresh : m.lookup l' = none),
+      Eval k (m.extend_val l' ⟨v, hv, compute_reachability m.heap v hv⟩ hwf rfl hfresh)
+        (e2.subst (Subst.openVar (.free l'))) Q) :
+    Eval k m (.letin v e2) Q := by
+  refine ⟨?_, ?_⟩
+  · refine Safe.letin (Safe.ans (Exp.IsAns.is_val hv.to_IsVal)) ?_ ?_ ?_
+    · intro t1 v1 m1 hrun _
+      obtain ⟨rfl, rfl, rfl⟩ := BigStep.simpleVal_eq hv hrun
+      exact ⟨Exp.IsSimpleAns.is_simple_val hv, hwf⟩
+    · intro t1 m1 v1 hrun hv1 hwf1 l' hfresh
+      obtain ⟨rfl, rfl, rfl⟩ := BigStep.simpleVal_eq hv hrun
+      exact (h l' hfresh).1
+    · intro t1 m1 x hrun
+      obtain ⟨_, h2, _⟩ := BigStep.simpleVal_eq hv hrun
+      subst h2; cases hv
+  · intro t v' m' hbs
+    cases hbs with
+    | bs_letin_val hrun hv1 hwf1 hfresh hrun2 =>
+      obtain ⟨rfl, rfl, rfl⟩ := BigStep.simpleVal_eq hv hrun
+      simpa using (h _ hfresh).2 _ _ _ hrun2
+    | bs_letin_var hrun _ =>
+      obtain ⟨_, h2, _⟩ := BigStep.simpleVal_eq hv hrun
+      subst h2; cases hv
+    | bs_val hv' => cases hv'
+
+theorem PrefixSafe.letin_simpleval {k : Nat} {m : Memory} {v : Exp {}} {e2 : Exp ({},x)}
+    {R : CapabilitySet} (hv : v.IsSimpleVal) (hwf : v.WfInHeap m.heap)
+    (h : ∀ l' (hfresh : m.lookup l' = none),
+      PrefixSafe k (m.extend_val l' ⟨v, hv, compute_reachability m.heap v hv⟩ hwf rfl hfresh)
+        (e2.subst (Subst.openVar (.free l'))) R) :
+    PrefixSafe k m (.letin v e2) R := by
+  intro t m' e' hred hbud
+  cases hred with
+  | refl => exact ⟨TraceOk.nil, GSeqReduce.refl⟩
+  | step hstep rest =>
+    cases hstep with
+    | step_ctx_letin h1 => exact (seqstep_ans_absurd (Exp.IsAns.is_val hv.to_IsVal) h1).elim
+    | step_lift hv' hwf' hfresh =>
+      obtain ⟨htok, hg⟩ := h _ hfresh rest (by simpa using hbud)
+      exact ⟨by simpa using htok, GSeqReduce.step (GSeqStep.step_lift hv' hwf' hfresh) hg⟩
+    | step_rename => cases hv
+
+/-! ### Footprints of cell lists -/
+
+/-- The expanded captures of a list of cells only reach its cells, at `ε`. -/
+theorem expand_captures_ofVars_hasmem {H : Heap} {ls : List Nat} {mu : CapMode} {l : Nat}
+    (hcells : ∀ l' ∈ ls, ∃ c, H l' = some (.capability c))
+    (h : (expand_captures H (CaptureSet.ofVars (ls.map Var.free))).hasmem mu l) :
+    l ∈ ls ∧ mu = .access .epsilon := by
+  induction ls with
+  | nil => exact absurd h CapabilitySet.not_hasmem_empty
+  | cons a ls ih =>
+    simp only [List.map_cons, CaptureSet.ofVars, expand_captures] at h
+    cases h with
+    | left h =>
+      obtain ⟨c, hc⟩ := hcells a List.mem_cons_self
+      simp only [reachability_of_loc, hc, CapabilitySet.applyAccess_M, CapabilitySet.applyMut,
+        CapabilitySet.singleton] at h
+      cases h
+      exact ⟨List.mem_cons_self, rfl⟩
+    | right h =>
+      obtain ⟨hl, hmu⟩ := ih (fun l' hl' => hcells l' (List.mem_cons_of_mem _ hl')) h
+      exact ⟨List.mem_cons_of_mem _ hl, hmu⟩
+
+theorem expand_captures_ofVars_hasmem_self {H : Heap} {ls : List Nat} {l : Nat}
+    (hl : l ∈ ls) (hcap : ∃ c, H l = some (.capability c)) :
+    (expand_captures H (CaptureSet.ofVars (ls.map Var.free))).hasmem (.access .epsilon) l := by
+  induction ls with
+  | nil => cases hl
+  | cons a ls ih =>
+    simp only [List.map_cons, CaptureSet.ofVars, expand_captures]
+    rcases List.mem_cons.mp hl with rfl | hl'
+    · apply CapabilitySet.hasmem.left
+      obtain ⟨c, hc⟩ := hcap
+      simp only [reachability_of_loc, hc, CapabilitySet.applyAccess_M, CapabilitySet.applyMut,
+        CapabilitySet.singleton]
+      exact CapabilitySet.hasmem.here
+    · exact CapabilitySet.hasmem.right (ih hl')
+
+theorem List.nodup_take_drop_disjoint {α : Type} {l : List α} (h : l.Nodup) (n : Nat) {a : α}
+    (h1 : a ∈ l.take n) (h2 : a ∈ l.drop n) : False := by
+  rw [← List.take_append_drop n l] at h
+  exact List.disjoint_of_nodup_append h h1 h2
+
 /-- **Owned split.**  Splitting consumes the array `x` (its use set carries `x` at `.drop`)
 and packs its two halves with their cell sets as two fresh, disjoint witnesses: a `pack`
 whose evidence is computed at run time. -/
@@ -6859,7 +7005,263 @@ theorem sem_typ_split {x : BVar s .var} {n : Nat} {C : CaptureSet s} {T : Ty .ca
   (hx : SemanticTyping {} Γ (Exp.var (.bound x)) (.typ (.arr C T))) :
   SemanticTyping ((.var (.M .epsilon) (.bound x)) ∪ (.var .drop (.bound x))) Γ
     (Exp.split (.bound x) n) (.exi 2 (Ty.splitBody C T)) := by
-  sorry
+  intro env k st store hts hdsep hcompat
+  simp only [Ty.exi_exp_denot, Exp.subst, Subst.from_TypeEnv, Var.subst]
+  intro hmt
+  rcases Nat.eq_zero_or_pos k with rfl | hkpos
+  · exact ⟨Eval.exhausted, prefixSafe_zero⟩
+  have h1 := semtyp_to_exi_exp_denot hx hts hdsep (Memory.is_compatible_empty store)
+  obtain ⟨st1, hwle1, hmt1, hval1⟩ := var_exp_denot_inv hkpos hmt h1
+  simp only [Ty.exi_val_denot, Ty.val_denot] at hval1
+  obtain ⟨hwf_e, hwf_C, ls, hres, hnd, hcells⟩ := hval1
+  obtain ⟨R0, hlk⟩ := resolve_var_arr_lookup hres
+  have hcap : ∀ l ∈ ls, ∃ c, store.heap l = some (.capability c) := fun l hl => by
+    obtain ⟨n0, ℓ0, _, hlk', _⟩ := hcells l hl; exact ⟨_, hlk'⟩
+  have hpres : ∀ l ∈ ls, store.heap l ≠ none := fun l hl => by
+    obtain ⟨c, hc⟩ := hcap l hl; simp [hc]
+  refine ⟨Eval.eval_split hlk ?_, PrefixSafe.split hlk ?_⟩
+  · unfold Exp.splitExp
+    apply Eval.eval_letin_simpleval Exp.IsSimpleVal.arr
+      (Exp.wf_arr_of (fun l hl => hpres l (List.mem_of_mem_take hl)))
+    intro l1 hf1
+    rw [Exp.splitExp_open1]
+    set m1 := store.extend_val l1 _ _ _ hf1 with hm1
+    have hsub1 : m1.subsumes store := Memory.extend_val_subsumes _ _ _ _ _ _
+    apply Eval.eval_letin_simpleval Exp.IsSimpleVal.arr
+      (Exp.wf_arr_of (fun l hl => fun h =>
+        hpres l (List.mem_of_mem_drop hl) (Heap.none_of_subsumes_none hsub1 h)))
+    intro l2 hf2
+    rw [Exp.splitExp_open2]
+    set m2 := m1.extend_val l2 _ _ _ hf2 with hm2
+    have hsub2 : m2.subsumes m1 := Memory.extend_val_subsumes _ _ _ _ _ _
+    have hl1 : m2.heap l1 ≠ none := by
+      intro h; have := Heap.none_of_subsumes_none hsub2 h
+      simp [m1, Memory.extend_val, Heap.extend] at this
+    have hl2 : m2.heap l2 ≠ none := by
+      simp [m2, Memory.extend_val, Heap.extend]
+    apply Eval.eval_letin_simpleval Exp.IsSimpleVal.pair
+      (Exp.WfInHeap.wf_pair (Var.wf_free_of_ne_none hl1) (Var.wf_free_of_ne_none hl2))
+    intro l3 hf3
+    rw [Exp.splitExp_open3]
+    apply Eval.eval_pack
+    intro _hguard
+    set m3 := m2.extend_val l3 _ _ _ hf3 with hm3
+    have hsub3 : m3.subsumes m2 := Memory.extend_val_subsumes _ _ _ _ _ _
+    have hsub : m3.subsumes store :=
+      Memory.subsumes_trans hsub3 (Memory.subsumes_trans hsub2 hsub1)
+    -- the three fresh locations are distinct from each other and from every cell
+    have hl1m1 : m1.heap l1 ≠ none := by simp [m1, Memory.extend_val, Heap.extend]
+    have hne12 : l2 ≠ l1 := by
+      intro h; subst h; exact hl1m1 hf2
+    have hne31 : l3 ≠ l1 := by intro h; subst h; exact hl1 hf3
+    have hne32 : l3 ≠ l2 := by intro h; subst h; exact hl2 hf3
+    have hcell_ne : ∀ l ∈ ls, l ≠ l1 ∧ l ≠ l2 ∧ l ≠ l3 := by
+      intro l hl
+      refine ⟨fun h => ?_, fun h => ?_, fun h => ?_⟩
+      · subst h; exact hpres l hl hf1
+      · subst h; exact hpres l hl (Heap.none_of_subsumes_none hsub1 hf2)
+      · subst h
+        exact hpres l hl (Heap.none_of_subsumes_none (Memory.subsumes_trans hsub2 hsub1) hf3)
+    have hlk_cells : ∀ l ∈ ls, m3.lookup l = store.lookup l := by
+      intro l hl
+      obtain ⟨h1', h2', h3'⟩ := hcell_ne l hl
+      rw [hm3, Memory.extend_val_lookup_ne h3', hm2, Memory.extend_val_lookup_ne h2', hm1,
+        Memory.extend_val_lookup_ne h1']
+    have hcap3 : ∀ l ∈ ls, ∃ c, m3.heap l = some (.capability c) := by
+      intro l hl
+      obtain ⟨c, hc⟩ := hcap l hl
+      exact ⟨c, by rw [show m3.heap l = m3.lookup l from rfl, hlk_cells l hl]; exact hc⟩
+    have hlk3 : m3.lookup l3 = some (.val ⟨.pair (.free l1) (.free l2), .pair,
+        compute_reachability m2.heap (.pair (.free l1) (.free l2)) .pair⟩) :=
+      Memory.extend_val_lookup_self
+    have hlk2 : m3.lookup l2 = some (.val ⟨.arr ((ls.drop n).map Var.free), .arr,
+        compute_reachability m1.heap (.arr ((ls.drop n).map Var.free)) .arr⟩) := by
+      rw [hm3, Memory.extend_val_lookup_ne hne32.symm]; exact Memory.extend_val_lookup_self
+    have hlk1 : m3.lookup l1 = some (.val ⟨.arr ((ls.take n).map Var.free), .arr,
+        compute_reachability store.heap (.arr ((ls.take n).map Var.free)) .arr⟩) := by
+      rw [hm3, Memory.extend_val_lookup_ne hne31.symm, hm2,
+        Memory.extend_val_lookup_ne hne12.symm]
+      exact Memory.extend_val_lookup_self
+    -- the budget: `x` at `ε` and at `.drop`, i.e. the array's cells and their drop rights
+    have hRx : (CaptureSet.var (.M .epsilon) (Var.bound x)).denot env store
+        = expand_captures store.heap (CaptureSet.ofVars (ls.map Var.free)) := by
+      change (reachability_of_loc store.heap (env.lookup_var x).1).applyAccess (.M .epsilon) = _
+      rw [reachability_of_loc_eq_resolve_reachability store _ _ hlk]
+      rfl
+    have hRd : (CaptureSet.var .drop (Var.bound x)).denot env store
+        = (expand_captures store.heap (CaptureSet.ofVars (ls.map Var.free))).to_drop := by
+      change (reachability_of_loc store.heap (env.lookup_var x).1).applyAccess .drop = _
+      rw [reachability_of_loc_eq_resolve_reachability store _ _ hlk]
+      rfl
+    have hRb : ((CaptureSet.var (.M .epsilon) (Var.bound x)) ∪ (.var .drop (Var.bound x))).denot
+        env store = expand_captures store.heap (CaptureSet.ofVars (ls.map Var.free)) ∪
+          (expand_captures store.heap (CaptureSet.ofVars (ls.map Var.free))).to_drop := by
+      change CaptureSet.denot env _ store ∪ CaptureSet.denot env _ store = _
+      rw [hRx, hRd]
+    -- witnesses only reach cells of the respective half, at `ε`
+    have hwit : ∀ (ls' : List Nat), (∀ l ∈ ls', l ∈ ls) → ∀ mu l,
+        ((CaptureSet.ofVars (ls'.map Var.free)).ground_denot m3).hasmem mu l →
+        l ∈ ls' ∧ mu = .access .epsilon := by
+      intro ls' hsubl mu l h
+      rw [← expand_captures_eq_ground_denot] at h
+      exact expand_captures_ofVars_hasmem (fun l' hl' => hcap3 l' (hsubl l' hl')) h
+    have htake : ∀ l ∈ ls.take n, l ∈ ls := fun l hl => List.mem_of_mem_take hl
+    have hdrop : ∀ l ∈ ls.drop n, l ∈ ls := fun l hl => List.mem_of_mem_drop hl
+    -- the content-type transport across the two fresh witnesses
+    have hrb := rebind_val_denot (Rebind.cweakenCVars (env := env) (m := m3) (a := .can_drop)
+      (CS := ⟨[CaptureSet.ofVars ((ls.take n).map Var.free),
+               CaptureSet.ofVars ((ls.drop n).map Var.free)], rfl⟩)) T
+    -- each half is an array of the right cells
+    have hhalf : ∀ (ls' : List Nat) (l' : Nat) (c : BVar (s.extendCVars 2) .cvar),
+        (∀ l ∈ ls', l ∈ ls) → ls'.Nodup →
+        resolve m3.heap (.var (.free l')) = some (.arr (ls'.map Var.free)) →
+        m3.heap l' ≠ none →
+        ((CaptureSet.cvar (.M .epsilon) c).subst (Subst.from_TypeEnv
+          (TypeEnv.extend_cvars env m3 .can_drop ⟨[CaptureSet.ofVars ((ls.take n).map Var.free),
+            CaptureSet.ofVars ((ls.drop n).map Var.free)], rfl⟩))) =
+          CaptureSet.ofVars (ls'.map Var.free) →
+        Ty.val_denot (TypeEnv.extend_cvars env m3 .can_drop
+            ⟨[CaptureSet.ofVars ((ls.take n).map Var.free),
+              CaptureSet.ofVars ((ls.drop n).map Var.free)], rfl⟩)
+          (.arr (.cvar (.M .epsilon) c) (T.rename (Rename.weakenCVars 2))) k st1 m3
+          (.var (.free l')) := by
+      intro ls' l' c hsubl hnd' hres' hpres' hc
+      simp only [Ty.val_denot]
+      refine ⟨Exp.WfInHeap.wf_var (Var.wf_free_of_ne_none hpres'),
+        ?_, ls', hres', hnd', fun l hl => ?_⟩
+      · erw [hc]
+        exact CaptureSet.ofVars_free_wf (fun l hl => by
+          obtain ⟨c, hc⟩ := hcap3 l (hsubl l hl); rw [hc]; exact Option.some_ne_none _)
+      · obtain ⟨n0, ℓ0, R, hlkc, _, hstR, himpl⟩ := hcells l (hsubl l hl)
+        refine ⟨n0, ℓ0, R, by rw [hlk_cells l (hsubl l hl)]; exact hlkc, ?_, hstR, ?_⟩
+        · change ((CaptureSet.cvar (.M .epsilon) c).subst _).ground_denot m3 |>.covers _ _
+          erw [hc]
+          rw [← expand_captures_eq_ground_denot]
+          exact expand_captures_ofVars_covers hl (hcap3 l (hsubl l hl))
+        · intro j w' m' e'
+          exact (himpl j w' m' e').trans (hrb j.val w' m' e')
+    have hpres3 : ∀ l ∈ ls, m3.heap l ≠ none := fun l hl => by
+      obtain ⟨c, hc⟩ := hcap3 l hl; rw [hc]; exact Option.some_ne_none _
+    -- every witness location is a cell of `ls`, reached at `ε`
+    have hmemext : ∀ mu l,
+        (CaptureSet.unionAll (⟨[CaptureSet.ofVars ((ls.take n).map Var.free),
+          CaptureSet.ofVars ((ls.drop n).map Var.free)], rfl⟩ :
+            List.Vector (CaptureSet {}) 2)).reachability m3 |>.hasmem mu l →
+        l ∈ ls ∧ mu = .access .epsilon := by
+      intro mu l hmem
+      change ((CaptureSet.ofVars ((ls.take n).map Var.free)).reachability m3 ∪
+        ((CaptureSet.ofVars ((ls.drop n).map Var.free)).reachability m3 ∪
+          (CaptureSet.empty : CaptureSet {}).reachability m3)).hasmem mu l at hmem
+      rw [← CaptureSet.ground_denot_eq_reachability, ← CaptureSet.ground_denot_eq_reachability]
+        at hmem
+      cases hmem with
+      | left h => obtain ⟨hl, hmu⟩ := hwit _ htake mu l h; exact ⟨htake l hl, hmu⟩
+      | right h =>
+        cases h with
+        | left h => obtain ⟨hl, hmu⟩ := hwit _ hdrop mu l h; exact ⟨hdrop l hl, hmu⟩
+        | right h => exact absurd h CapabilitySet.not_hasmem_empty
+    refine ⟨TraceOk.nil, st1,
+      WorldLe.trans (WorldLe.refl_trunc_self _ st store)
+        (WorldLe.trans hwle1 ⟨hsub, fun _ _ h => h⟩),
+      WT_extend_val _ _ hf3 (WT_extend_val _ _ hf2 (WT_extend_val _ _ hf1 hmt1)),
+      ?_, ?_, ?_⟩
+    · -- the existential package
+      simp only [Ty.exi_val_denot]
+      refine ⟨_, .free l3, rfl, ?_, ?_, ?_, ?_⟩
+      · intro cs hmem
+        obtain rfl | hmem := List.mem_cons.mp hmem
+        · exact CaptureSet.ofVars_free_wf (fun l hl => hpres3 l (htake l hl))
+        obtain rfl | hmem := List.mem_cons.mp hmem
+        · exact CaptureSet.ofVars_free_wf (fun l hl => hpres3 l (hdrop l hl))
+        cases hmem
+      · intro cs hmem l hl
+        obtain rfl | hmem := List.mem_cons.mp hmem
+        · cases (hwit _ htake _ _ hl).2
+        obtain rfl | hmem := List.mem_cons.mp hmem
+        · cases (hwit _ hdrop _ _ hl).2
+        cases hmem
+      · refine List.Pairwise.cons ?_ (List.Pairwise.cons (fun _ h => nomatch h) List.Pairwise.nil)
+        intro b hb
+        simp only [List.mem_cons, List.not_mem_nil, or_false] at hb
+        subst hb
+        intro mu1 mu2 l h1 h2
+        exact List.nodup_take_drop_disjoint hnd n (hwit _ htake _ _ h1).1 (hwit _ hdrop _ _ h2).1
+      · have hres1 : resolve m3.heap (.var (.free l1)) = some (.arr ((ls.take n).map Var.free)) := by
+          simp only [resolve]; rw [show m3.heap l1 = m3.lookup l1 from rfl, hlk1]
+        have hres2 : resolve m3.heap (.var (.free l2)) = some (.arr ((ls.drop n).map Var.free)) := by
+          simp only [resolve]; rw [show m3.heap l2 = m3.lookup l2 from rfl, hlk2]
+        have hp1 : m3.heap l1 ≠ none := by
+          rw [show m3.heap l1 = m3.lookup l1 from rfl, hlk1]; exact Option.some_ne_none _
+        have hp2 : m3.heap l2 ≠ none := by
+          rw [show m3.heap l2 = m3.lookup l2 from rfl, hlk2]; exact Option.some_ne_none _
+        have hp3 : m3.heap l3 ≠ none := by
+          rw [show m3.heap l3 = m3.lookup l3 from rfl, hlk3]; exact Option.some_ne_none _
+        simp only [Ty.splitBody, Ty.val_denot]
+        have hh1 := hhalf (ls.take n) l1 .here htake (hnd.sublist (List.take_sublist n ls))
+          hres1 hp1 rfl
+        have hh2 := hhalf (ls.drop n) l2 (.there .here) hdrop
+          (hnd.sublist (List.drop_sublist n ls)) hres2 hp2 rfl
+        simp only [Ty.val_denot] at hh1 hh2
+        refine ⟨Exp.WfInHeap.wf_var (Var.wf_free_of_ne_none hp3), ?_, l1, l2, ?_, ?_, hh1, hh2⟩
+        · exact CaptureSet.WfInHeap.wf_union
+            (CaptureSet.ofVars_free_wf (fun l hl => hpres3 l (htake l hl)))
+            (CaptureSet.ofVars_free_wf (fun l hl => hpres3 l (hdrop l hl)))
+        · simp only [resolve]; rw [show m3.heap l3 = m3.lookup l3 from rfl, hlk3]
+        · change expand_captures m3.heap (CaptureSet.ofVars [.free l1, .free l2]) ⊆
+            (CaptureSet.ofVars ((ls.take n).map Var.free)).ground_denot m3 ∪
+              (CaptureSet.ofVars ((ls.drop n).map Var.free)).ground_denot m3
+          rw [← expand_captures_eq_ground_denot, ← expand_captures_eq_ground_denot]
+          simp only [CaptureSet.ofVars, expand_captures, CapabilitySet.applyAccess_M,
+            CapabilitySet.applyMut]
+          rw [reachability_of_loc_eq_resolve_reachability m3 l1 _ hlk1,
+            reachability_of_loc_eq_resolve_reachability m3 l2 _ hlk2]
+          exact CapabilitySet.Subset.union_left CapabilitySet.Subset.union_right_left
+            (CapabilitySet.Subset.union_left CapabilitySet.Subset.union_right_right
+              CapabilitySet.Subset.empty)
+    · -- pack_bound: the witnesses are covered by the consumed budget, with drop rights
+      intro n0 cs0 x0 heq mu l hmem
+      cases heq
+      left
+      obtain ⟨hl, rfl⟩ := hmemext mu l hmem
+      rw [hRb]
+      exact ⟨CapabilitySet.covers_union_left (expand_captures_ofVars_covers hl (hcap l hl)),
+        CapabilitySet.hasmem_union_right (CapabilitySet.hasmem_to_drop_of_hasmem
+          (expand_captures_ofVars_hasmem_self hl (hcap l hl)))⟩
+    · -- witness_live: the cells were live (budget compatibility) and are untouched
+      intro n0 cs0 x0 heq
+      cases heq
+      intro mu l b ℓ hmem hheap
+      obtain ⟨hl, rfl⟩ := hmemext mu l hmem
+      have hheap' : store.heap l = some (.capability (.mcell b ℓ)) := by
+        rw [show store.heap l = store.lookup l from rfl, ← hlk_cells l hl]; exact hheap
+      exact hcompat (.access .epsilon) l b ℓ (by
+        rw [hRb]
+        exact CapabilitySet.hasmem_union_left (expand_captures_ofVars_hasmem_self hl (hcap l hl)))
+        hheap'
+  · unfold Exp.splitExp
+    apply PrefixSafe.letin_simpleval Exp.IsSimpleVal.arr
+      (Exp.wf_arr_of (fun l hl => hpres l (List.mem_of_mem_take hl)))
+    intro l1 hf1
+    rw [Exp.splitExp_open1]
+    set m1 := store.extend_val l1 _ _ _ hf1 with hm1
+    have hsub1 : m1.subsumes store := Memory.extend_val_subsumes _ _ _ _ _ _
+    apply PrefixSafe.letin_simpleval Exp.IsSimpleVal.arr
+      (Exp.wf_arr_of (fun l hl => fun h =>
+        hpres l (List.mem_of_mem_drop hl) (Heap.none_of_subsumes_none hsub1 h)))
+    intro l2 hf2
+    rw [Exp.splitExp_open2]
+    set m2 := m1.extend_val l2 _ _ _ hf2 with hm2
+    have hsub2 : m2.subsumes m1 := Memory.extend_val_subsumes _ _ _ _ _ _
+    have hl1 : m2.heap l1 ≠ none := by
+      intro h; have := Heap.none_of_subsumes_none hsub2 h
+      simp [m1, Memory.extend_val, Heap.extend] at this
+    have hl2 : m2.heap l2 ≠ none := by
+      simp [m2, Memory.extend_val, Heap.extend]
+    apply PrefixSafe.letin_simpleval Exp.IsSimpleVal.pair
+      (Exp.WfInHeap.wf_pair (Var.wf_free_of_ne_none hl1) (Var.wf_free_of_ne_none hl2))
+    intro l3 hf3
+    rw [Exp.splitExp_open3]
+    exact PrefixSafe.ans (Exp.IsAns.is_val Exp.IsVal.pack)
 
 theorem fundamental
   (hΓ : Γ.IsClosed)
