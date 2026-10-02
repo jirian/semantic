@@ -388,7 +388,7 @@ private theorem ground_denot_applyDrop_eq_to_drop {C : CaptureSet {}} {store : M
   | cvar _ c => cases c
 
 /-- `applyAccess` on a `CaptureSet {}` commutes with `ground_denot`. -/
-private theorem captureSet_ground_denot_applyAccess_comm
+theorem captureSet_ground_denot_applyAccess_comm
     {C : CaptureSet {}} {store : Memory} {a : Access} :
     (C.applyAccess a).ground_denot store = (C.ground_denot store).applyAccess a := by
   cases a with
@@ -680,7 +680,7 @@ end
 
 /-- `.drop`-membership is preserved by `CapabilitySet.Subset`: the only mode-
     changing rule `cap_ro` is access-only, so it never produces a `.drop`. -/
-private theorem hasmem_drop_of_subset {C1 C2 : CapabilitySet} {l : Nat}
+theorem hasmem_drop_of_subset {C1 C2 : CapabilitySet} {l : Nat}
     (hsub : C1 ⊆ C2) (h : C1.hasmem .drop l) : C2.hasmem .drop l := by
   induction hsub with
   | refl => exact h
@@ -1106,7 +1106,7 @@ theorem compute_peaks_peaks {Γ : Ctx s} {env : TypeEnv s} {k : Nat} {st : Store
   rw [← compute_peaks_correct hts, ← compute_peaks_correct hts,
     (CaptureSet.peaks_peaksOnly Γ C).peaks_fixed]
 
-private theorem closed_capture_denot_monotonic
+theorem closed_capture_denot_monotonic
     {Cf : CaptureSet s} {env : TypeEnv s} {store m' : Memory} {Γ : Ctx s}
     (hCf_closed : Cf.IsClosed)
     (hts : EnvTyping Γ env k st store)
@@ -5467,7 +5467,7 @@ theorem Memory.is_compatible_of_loc {m : Memory} {C D : CapabilitySet}
     union of the `n` evidences — i.e. the ground reachability of `unionAll CS`.  The
     head binder looks up to its evidence `hd` (`ε` is inert at ground level); the tail
     reindexes through `Rename.succ` back to the smaller `extend_cvars`. -/
-private theorem freshCVars_denot_eq_unionAll {s : Sig} {env : TypeEnv s}
+theorem freshCVars_denot_eq_unionAll {s : Sig} {env : TypeEnv s}
     {m0 : Memory} {a : Authority} :
     {n : Nat} → {CS : List.Vector (CaptureSet {}) n} → (m : Memory) →
     ((CaptureSet.freshCVars n).subst
@@ -5527,7 +5527,7 @@ private theorem sepctx_lt2_no_two {s : Sig} :
 /-- Noninterference for every distinct pair of a two-entry separation context
 `[B, A]`, given `A ⋔ B`.  Context abstracted for `induction`; shape supplied as a
 hypothesis.  Discharges the `unpack` lock's `Satisfy.sep` obligation. -/
-private theorem sepctx_two_entry_ni {s : Sig} {env : TypeEnv s} {m : Memory}
+theorem sepctx_two_entry_ni {s : Sig} {env : TypeEnv s} {m : Memory}
     {A B : CaptureSet s}
     (hAB : CapabilitySet.Noninterference (A.denot env m) (B.denot env m)) :
     ∀ {K : SepCtx s} {Ca Cb : CaptureSet s},
@@ -7192,19 +7192,121 @@ theorem PrefixSafe.letin_simpleval {k : Nat} {m : Memory} {v : Exp {}} {e2 : Exp
       exact ⟨by simpa using htok, GSeqReduce.step (GSeqStep.step_lift hv' hwf' hfresh) hg⟩
     | step_rename => cases hv
 
-/-- **Owned split.**  Splitting consumes the array `x` (its use set carries `x` at `.drop`)
-and packs its two halves with their cell sets as two fresh, disjoint witnesses: a `pack`
-whose evidence is computed at run time. -/
-theorem sem_typ_split {x : BVar s .var} {n : Nat} {C : CaptureSet s} {T : Ty .capt s}
-  (hΓ : Γ.IsClosed)
-  (hx : SemanticTyping {} Γ (Exp.var (.bound x)) (.typ (.arr C T))) :
-  SemanticTyping ((.var (.M .epsilon) (.bound x)) ∪ (.var .drop (.bound x))) Γ
-    (Exp.split (.bound x) n) (.exi 2 (Ty.splitBody C T)) := by
-  intro env k st store hts hdsep hcompat
-  simp only [Ty.exi_exp_denot, Exp.subst, Subst.from_TypeEnv, Var.subst]
-  intro hmt
+theorem BigStep.val_inv_simple {m m' : Memory} {v w : Exp {}} {t : Trace}
+    (hv : Exp.IsSimpleVal v) (h : BigStep m v t w m') : t = [] ∧ w = v ∧ m' = m := by
+  cases hv <;> cases h <;> trivial
+
+theorem BigStep.split_trace_nil {m m' : Memory} {x : Var .var {}} {n : Nat} {t : Trace}
+    {v : Exp {}} (h : BigStep m (.split x n) t v m') : t = [] := by
+  cases h with
+  | bs_val hv => cases hv
+  | bs_split hlk hb =>
+    unfold Exp.splitExp at hb
+    cases hb with
+    | bs_val hv => cases hv
+    | bs_letin_val h1 hv1 _ _ h2 =>
+      obtain ⟨rfl, rfl, rfl⟩ := BigStep.val_inv_simple Exp.IsSimpleVal.arr h1
+      rw [Exp.splitExp_open1] at h2
+      cases h2 with
+      | bs_val hv => cases hv
+      | bs_letin_val h1' hv1' _ _ h2' =>
+        obtain ⟨rfl, rfl, rfl⟩ := BigStep.val_inv_simple Exp.IsSimpleVal.arr h1'
+        rw [Exp.splitExp_open2] at h2'
+        cases h2' with
+        | bs_val hv => cases hv
+        | bs_letin_val h1'' hv1'' _ _ h2'' =>
+          obtain ⟨rfl, rfl, rfl⟩ := BigStep.val_inv_simple Exp.IsSimpleVal.pair h1''
+          rw [Exp.splitExp_open3] at h2''
+          cases h2'' with
+          | bs_pack => rfl
+          | bs_val hv => cases hv
+        | bs_letin_var h1'' _ => cases (BigStep.val_inv_simple Exp.IsSimpleVal.pair h1'').2.1
+      | bs_letin_var h1' _ => cases (BigStep.val_inv_simple Exp.IsSimpleVal.arr h1').2.1
+    | bs_letin_var h1 _ => cases (BigStep.val_inv_simple Exp.IsSimpleVal.arr h1).2.1
+
+/-- `splitExp` performs no heap events, so it is prefix-safe for any budget. -/
+theorem PrefixSafe.splitExp_any {k : Nat} {store : Memory} {ls : List Nat} {n : Nat}
+    {R : CapabilitySet} (hpres : ∀ l ∈ ls, store.heap l ≠ none) :
+    PrefixSafe k store (Exp.splitExp ls n) R := by
+  unfold Exp.splitExp
+  apply PrefixSafe.letin_simpleval Exp.IsSimpleVal.arr
+    (Exp.wf_arr_of (fun l hl => hpres l (List.mem_of_mem_take hl)))
+  intro l1 hf1
+  rw [Exp.splitExp_open1]
+  set m1 := store.extend_val l1 _ _ _ hf1 with hm1
+  have hsub1 : m1.subsumes store := Memory.extend_val_subsumes _ _ _ _ _ _
+  apply PrefixSafe.letin_simpleval Exp.IsSimpleVal.arr
+    (Exp.wf_arr_of (fun l hl => fun h =>
+      hpres l (List.mem_of_mem_drop hl) (Heap.none_of_subsumes_none hsub1 h)))
+  intro l2 hf2
+  rw [Exp.splitExp_open2]
+  set m2 := m1.extend_val l2 _ _ _ hf2 with hm2
+  have hsub2 : m2.subsumes m1 := Memory.extend_val_subsumes _ _ _ _ _ _
+  have hl1 : m2.heap l1 ≠ none := by
+    intro h; have := Heap.none_of_subsumes_none hsub2 h
+    simp [m1, Memory.extend_val, Heap.extend] at this
+  have hl2 : m2.heap l2 ≠ none := by
+    simp [m2, Memory.extend_val, Heap.extend]
+  apply PrefixSafe.letin_simpleval Exp.IsSimpleVal.pair
+    (Exp.WfInHeap.wf_pair (Var.wf_free_of_ne_none hl1) (Var.wf_free_of_ne_none hl2))
+  intro l3 hf3
+  rw [Exp.splitExp_open3]
+  exact PrefixSafe.ans (Exp.IsAns.is_val Exp.IsVal.pack)
+
+/-- A capability set all of whose members are covered by `C` is a subset of `C`. -/
+theorem CapabilitySet.subset_of_hasmem_covers {R C : CapabilitySet}
+    (h : ∀ mu l, R.hasmem mu l → C.covers mu l) : R ⊆ C := by
+  induction R with
+  | empty => exact CapabilitySet.Subset.empty
+  | cap mu l => exact CapabilitySet.covers_imp_cap_subset (h mu l CapabilitySet.hasmem.here)
+  | union R1 R2 ih1 ih2 =>
+    exact CapabilitySet.Subset.union_left
+      (ih1 (fun mu l hm => h mu l (CapabilitySet.hasmem.left hm)))
+      (ih2 (fun mu l hm => h mu l (CapabilitySet.hasmem.right hm)))
+
+/-- A `to_drop` image covers only at `.drop`. -/
+theorem CapabilitySet.covers_to_drop_mode {A : CapabilitySet} {mu : CapMode} {l : Nat}
+    (h : A.to_drop.covers mu l) : mu = .drop := by
+  induction A with
+  | empty => cases h
+  | cap m l' =>
+    cases h with
+    | here hle => cases hle; rfl
+  | union A1 A2 ih1 ih2 =>
+    cases h with
+    | left h => exact ih1 h
+    | right h => exact ih2 h
+
+/-- Strengthened evaluation of `split`: besides the semantic-typing postcondition,
+the run emits no events, every witness reaches only cells of the array `x` (at `ε`),
+and the run is prefix-safe for any budget. -/
+theorem sem_split_strong {x : BVar s .var} {n : Nat} {C : CaptureSet s} {T : Ty .capt s}
+  (_hΓ : Γ.IsClosed)
+  (hx : SemanticTyping {} Γ (Exp.var (.bound x)) (.typ (.arr C T)))
+  {env : TypeEnv s} {k : Nat} {st : StoreTyping k} {store : Memory}
+  (hts : EnvTyping Γ env k st store) (hdsep : env.EnvSepWf)
+  (hcompat : store.is_compatible
+    (((.var (.M .epsilon) (.bound x)) ∪ (.var .drop (.bound x)) : CaptureSet s).denot env store))
+  (hmt : MemTyped k st store) :
+  Eval k store (Exp.split (.free (env.lookup_var x).1) n) (fun t v m' =>
+    t.readCount < k →
+    (TraceOk t ((((.var (.M .epsilon) (.bound x)) ∪ (.var .drop (.bound x))) :
+        CaptureSet s).denot env store) ∧
+      ∃ (st' : StoreTyping (k - t.readCount)),
+        WorldLe st' m' (st.trunc (Nat.sub_le k t.readCount)) store ∧
+        MemTyped (k - t.readCount) st' m' ∧
+        Ty.exi_val_denot env (.exi 2 (Ty.splitBody C T)) (k - t.readCount) st' m' v ∧
+        pack_bound ((((.var (.M .epsilon) (.bound x)) ∪ (.var .drop (.bound x))) :
+          CaptureSet s).denot env store) store v m' ∧
+        witness_live v m') ∧
+    t = [] ∧
+    (∀ (cs : List.Vector (CaptureSet {}) 2) (y : Var .var {}), v = .pack cs y →
+      ∀ cs' ∈ cs.toList, ∀ mu l, (cs'.ground_denot m').hasmem mu l →
+        ((CaptureSet.var (.M .epsilon) (.bound x) : CaptureSet s).denot env store).covers
+          mu l)) ∧
+  ∀ R, PrefixSafe k store (Exp.split (.free (env.lookup_var x).1) n) R := by
   rcases Nat.eq_zero_or_pos k with rfl | hkpos
-  · exact ⟨Eval.exhausted, prefixSafe_zero⟩
+  · exact ⟨Eval.exhausted, fun _ => prefixSafe_zero⟩
   have h1 := semtyp_to_exi_exp_denot hx hts hdsep (Memory.is_compatible_empty store)
   obtain ⟨st1, hwle1, hmt1, hval1⟩ := var_exp_denot_inv hkpos hmt h1
   simp only [Ty.exi_val_denot, Ty.val_denot] at hval1
@@ -7214,7 +7316,7 @@ theorem sem_typ_split {x : BVar s .var} {n : Nat} {C : CaptureSet s} {T : Ty .ca
     obtain ⟨n0, ℓ0, _, hlk', _⟩ := hcells l hl; exact ⟨_, hlk'⟩
   have hpres : ∀ l ∈ ls, store.heap l ≠ none := fun l hl => by
     obtain ⟨c, hc⟩ := hcap l hl; simp [hc]
-  refine ⟨Eval.eval_split hlk ?_, PrefixSafe.split hlk ?_⟩
+  refine ⟨Eval.eval_split hlk ?_, fun R => PrefixSafe.split hlk (PrefixSafe.splitExp_any hpres)⟩
   · unfold Exp.splitExp
     apply Eval.eval_letin_simpleval Exp.IsSimpleVal.arr
       (Exp.wf_arr_of (fun l hl => hpres l (List.mem_of_mem_take hl)))
@@ -7355,11 +7457,11 @@ theorem sem_typ_split {x : BVar s .var} {n : Nat} {C : CaptureSet s} {T : Ty .ca
         cases h with
         | left h => obtain ⟨hl, hmu⟩ := hwit _ hdrop mu l h; exact ⟨hdrop l hl, hmu⟩
         | right h => exact absurd h CapabilitySet.not_hasmem_empty
-    refine ⟨TraceOk.nil, st1,
+    refine ⟨⟨TraceOk.nil, st1,
       WorldLe.trans (WorldLe.refl_trunc_self _ st store)
         (WorldLe.trans hwle1 ⟨hsub, fun _ _ h => h⟩),
       WT_extend_val _ _ hf3 (WT_extend_val _ _ hf2 (WT_extend_val _ _ hf1 hmt1)),
-      ?_, ?_, ?_⟩
+      ?_, ?_, ?_⟩, rfl, ?_⟩
     · -- the existential package
       simp only [Ty.exi_val_denot]
       refine ⟨_, .free l3, rfl, ?_, ?_, ?_, ?_⟩
@@ -7433,30 +7535,415 @@ theorem sem_typ_split {x : BVar s .var} {n : Nat} {C : CaptureSet s} {T : Ty .ca
         rw [hRb]
         exact CapabilitySet.hasmem_union_left (expand_captures_ofVars_hasmem_self hl (hcap l hl)))
         hheap'
-  · unfold Exp.splitExp
-    apply PrefixSafe.letin_simpleval Exp.IsSimpleVal.arr
-      (Exp.wf_arr_of (fun l hl => hpres l (List.mem_of_mem_take hl)))
-    intro l1 hf1
-    rw [Exp.splitExp_open1]
-    set m1 := store.extend_val l1 _ _ _ hf1 with hm1
-    have hsub1 : m1.subsumes store := Memory.extend_val_subsumes _ _ _ _ _ _
-    apply PrefixSafe.letin_simpleval Exp.IsSimpleVal.arr
-      (Exp.wf_arr_of (fun l hl => fun h =>
-        hpres l (List.mem_of_mem_drop hl) (Heap.none_of_subsumes_none hsub1 h)))
-    intro l2 hf2
-    rw [Exp.splitExp_open2]
-    set m2 := m1.extend_val l2 _ _ _ hf2 with hm2
-    have hsub2 : m2.subsumes m1 := Memory.extend_val_subsumes _ _ _ _ _ _
-    have hl1 : m2.heap l1 ≠ none := by
-      intro h; have := Heap.none_of_subsumes_none hsub2 h
-      simp [m1, Memory.extend_val, Heap.extend] at this
-    have hl2 : m2.heap l2 ≠ none := by
-      simp [m2, Memory.extend_val, Heap.extend]
-    apply PrefixSafe.letin_simpleval Exp.IsSimpleVal.pair
-      (Exp.WfInHeap.wf_pair (Var.wf_free_of_ne_none hl1) (Var.wf_free_of_ne_none hl2))
-    intro l3 hf3
-    rw [Exp.splitExp_open3]
-    exact PrefixSafe.ans (Exp.IsAns.is_val Exp.IsVal.pack)
+    · -- every witness reaches only cells of `x`, at `ε`
+      intro cs0 y0 heq cs' hmem mu l hgd
+      cases heq
+      have hcells' : ∀ ls' : List Nat, (∀ l ∈ ls', l ∈ ls) →
+          ((CaptureSet.ofVars (ls'.map Var.free)).ground_denot m3).hasmem mu l →
+          ((CaptureSet.var (.M .epsilon) (Var.bound x)).denot env store).covers mu l := by
+        intro ls' hsubl h
+        obtain ⟨hl, rfl⟩ := hwit ls' hsubl mu l h
+        rw [hRx]
+        exact expand_captures_ofVars_covers (hsubl l hl) (hcap l (hsubl l hl))
+      simp only [List.Vector.toList, List.mem_cons, List.not_mem_nil, or_false] at hmem
+      rcases hmem with rfl | rfl
+      · exact hcells' _ htake hgd
+      · exact hcells' _ hdrop hgd
+
+
+/-- **Owned split.**  Splitting consumes the array `x` (its use set carries `x` at `.drop`)
+and packs its two halves with their cell sets as two fresh, disjoint witnesses: a `pack`
+whose evidence is computed at run time. -/
+theorem sem_typ_split {x : BVar s .var} {n : Nat} {C : CaptureSet s} {T : Ty .capt s}
+  (hΓ : Γ.IsClosed)
+  (hx : SemanticTyping {} Γ (Exp.var (.bound x)) (.typ (.arr C T))) :
+  SemanticTyping ((.var (.M .epsilon) (.bound x)) ∪ (.var .drop (.bound x))) Γ
+    (Exp.split (.bound x) n) (.exi 2 (Ty.splitBody C T)) := by
+  intro env k st store hts hdsep hcompat
+  simp only [Ty.exi_exp_denot, Exp.subst, Subst.from_TypeEnv, Var.subst]
+  intro hmt
+  obtain ⟨hev, hps⟩ := sem_split_strong (n := n) hΓ hx hts hdsep hcompat hmt
+  exact ⟨⟨hev.1, fun t v m' hb hg => (hev.2 t v m' hb hg).1⟩, hps _⟩
+
+/-- Continuation runner for the borrowed split: after `split x n` produced
+`pack cs (.free l0)` without any heap event, run the continuation in the
+environment that binds the two halves as access-only capture variables bounded by
+`{x}`, under the lock recording their separation. -/
+theorem sem_typ_unpackb_cont
+    {x : BVar s .var} {C2 : CaptureSet s} {Γ : Ctx s}
+    {T : Ty .capt (s.extendCVars 2)} {u : Exp ((s.extendCVars 2),x)} {U : Ty .exi s}
+    {env : TypeEnv s} {k : Nat} {st : StoreTyping k} {store m1 : Memory}
+    {t1 : Trace} {st1 : StoreTyping (k - t1.readCount)}
+    {cs : List.Vector (CaptureSet {}) 2} {l0 : Nat}
+    (hclosed_C2 : C2.IsClosed)
+    (hu : SemanticTyping
+      ((((C2.rename (Rename.weakenCVars 2)).rename (Rename.succ (k := .lock))).rename
+          Rename.succ) ∪
+       (((CaptureSet.freshCVars 2).rename (Rename.succ (k := .lock))).rename Rename.succ))
+      ((((Γ.push_cvar .access_only (.bound (.var (.M .epsilon) (.bound x)))).push_cvar
+            .access_only
+            (.bound ((CaptureSet.var (.M .epsilon) (.bound x)).rename Rename.succ))).push_lock
+          ⟨(SepCtx.empty.cons (.cvar (.M .epsilon) (.there .here))).cons
+              (.cvar (.M .epsilon) .here),
+           MutabilityCtx.empty⟩),x:(T.rename (Rename.succ (k := .lock))))
+      (u.rename ((Rename.succ (k := .lock)).lift))
+      (((U.rename (Rename.weakenCVars 2)).rename (Rename.succ (k := .lock))).rename
+        Rename.succ))
+    (hts : EnvTyping Γ env k st store)
+    (hdsep : env.EnvSepWf)
+    (hpresent_C2 : ∀ mu l, (C2.denot env store).hasmem mu l → store.heap l ≠ none)
+    (hcompat_C2 : store.is_compatible (C2.denot env store))
+    (ht1 : t1 = [])
+    (hwle1 : WorldLe st1 m1 (st.trunc (Nat.sub_le k t1.readCount)) store)
+    (hmt1 : MemTyped (k - t1.readCount) st1 m1)
+    (hCSwf : ∀ cs' ∈ cs.toList, cs'.WfInHeap m1.heap)
+    (hCSdf : ∀ cs' ∈ cs.toList, (cs'.ground_denot m1).drop_free)
+    (hCSdisj : cs.toList.Pairwise
+      (fun cs1 cs2 => CapabilitySet.disjoint
+        (cs1.ground_denot m1) (cs2.ground_denot m1)))
+    (hbound : ∀ cs' ∈ cs.toList, ∀ mu l, (cs'.ground_denot m1).hasmem mu l →
+      ((CaptureSet.var (.M .epsilon) (.bound x)).denot env store).covers mu l)
+    (hvalT : Ty.val_denot (TypeEnv.extend_cvars env m1 .can_drop cs) T
+      (k - t1.readCount) st1 m1 (.var (.free l0)))
+    (hwl1 : witness_live (.pack cs (.free l0)) m1)
+    (hsub_m1 : m1.subsumes store)
+    (hframe : Memory.FrameLive store t1 m1)
+    (hallocd : ∀ {l c}, store.lookup l = none →
+      m1.lookup l = some (.capability c) → Trace.allocd t1 l) :
+    let R := ((CaptureSet.var (.M .epsilon) (.bound x)) ∪ C2).denot env store
+    let R2 := C2.denot env store ∪ (CaptureSet.unionAll cs).ground_denot m1
+    Eval (k - t1.readCount) m1
+      ((u.subst ((Subst.from_TypeEnv env).liftCVars 2).lift).subst
+        (Subst.unpack cs (.free l0)))
+      (fun t2 vv m' =>
+        (t1 ++ t2).readCount < k →
+        TraceOk (t1 ++ t2) R ∧
+        ∃ st'', WorldLe st'' m'
+          (st.trunc (Nat.sub_le k (t1 ++ t2).readCount)) store ∧
+          MemTyped (k - (t1 ++ t2).readCount) st'' m' ∧
+          Ty.exi_val_denot env U (k - (t1 ++ t2).readCount) st'' m' vv ∧
+          pack_bound R store vv m' ∧
+          witness_live vv m') ∧
+    PrefixSafe (k - t1.readCount) m1
+      ((u.subst ((Subst.from_TypeEnv env).liftCVars 2).lift).subst
+        (Subst.unpack cs (.free l0))) R2 ∧
+    (∀ mode l, R2.covers mode l →
+      R.covers mode l ∨ (m1.heap l ≠ none ∧ store.lookup l = none)) := by
+  dsimp only
+  subst ht1
+  obtain ⟨l, hl⟩ := cs
+  rcases l with _ | ⟨c0, _ | ⟨c1, _ | ⟨c2, l'⟩⟩⟩
+  all_goals try (simp at hl; done)
+  have hts1 : EnvTyping Γ env (k - Trace.readCount []) st1 m1 :=
+    env_typing_worldle_trunc (Nat.sub_le k _) hts hwle1
+  have hXclosed : (CaptureSet.var (.M .epsilon) (.bound x) : CaptureSet s).IsClosed :=
+    CaptureSet.IsClosed.var_bound
+  have hXm1 : (CaptureSet.var (.M .epsilon) (.bound x) : CaptureSet s).denot env m1
+      = (CaptureSet.var (.M .epsilon) (.bound x) : CaptureSet s).denot env store :=
+    (closed_capture_denot_monotonic hXclosed hts hsub_m1).symm
+  have hb0 : c0.ground_denot m1 ⊆
+      (CaptureSet.var (.M .epsilon) (.bound x) : CaptureSet s).denot env m1 := by
+    rw [hXm1]
+    exact CapabilitySet.subset_of_hasmem_covers (hbound c0 (by simp))
+  have hb1 : c1.ground_denot m1 ⊆
+      (CaptureSet.var (.M .epsilon) (.bound x) : CaptureSet s).denot env m1 := by
+    rw [hXm1]
+    exact CapabilitySet.subset_of_hasmem_covers (hbound c1 (by simp))
+  have henv1 : EnvTyping (Γ.push_cvar .access_only (.bound (.var (.M .epsilon) (.bound x))))
+      (env.extend_cvar c1 (c1.ground_denot m1) .access_only) (k - Trace.readCount [])
+      st1 m1 := by
+    refine ⟨hCSwf c1 (by simp), ?_, ?_, rfl, hCSdf c1 (by simp), rfl, hts1⟩
+    · exact CaptureBound.WfInHeap.wf_bound
+        (CaptureSet.wf_subst (CaptureSet.wf_of_closed hXclosed) (from_TypeEnv_wf_in_heap hts1))
+    · exact CapabilitySet.BoundedBy.set hb1
+  set ENVCV := TypeEnv.extend_cvars env m1 .access_only ⟨[c0, c1], hl⟩ with hENVCVdef
+  have henv_cvar : EnvTyping
+      ((Γ.push_cvar .access_only (.bound (.var (.M .epsilon) (.bound x)))).push_cvar
+        .access_only (.bound ((CaptureSet.var (.M .epsilon) (.bound x)).rename Rename.succ)))
+      ENVCV (k - Trace.readCount []) st1 m1 := by
+    refine ⟨hCSwf c0 (by simp), ?_, ?_, rfl, hCSdf c0 (by simp), rfl, henv1⟩
+    · exact CaptureBound.WfInHeap.wf_bound
+        (CaptureSet.wf_subst (CaptureSet.wf_of_closed (CaptureSet.rename_closed hXclosed))
+          (from_TypeEnv_wf_in_heap henv1))
+    · apply CapabilitySet.BoundedBy.set
+      have e := rebind_captureset_denot (Rebind.cweaken (env := env) (cs := c1)
+        (cap := c1.ground_denot m1) (a := .access_only))
+        (CaptureSet.var (.M .epsilon) (.bound x))
+      change c0.ground_denot m1 ⊆ CaptureSet.denot
+        (env.extend_cvar c1 (c1.ground_denot m1) .access_only) _ m1
+      convert hb0 using 1
+  have hvalT_ao : Ty.val_denot ENVCV T (k - Trace.readCount []) st1 m1 (.var (.free l0)) :=
+    IDenot.equiv_ltr (val_denot_auth_irrel_cvars (a1 := .can_drop) (a2 := .access_only) T) hvalT
+  -- the two halves' denotations
+  have hD0 : (CaptureSet.cvar (.M .epsilon) .here : CaptureSet (s.extendCVars 2)).denot ENVCV m1
+      = c0.ground_denot m1 := by
+    change (c0.applyAccess (.M .epsilon)).ground_denot m1 = _
+    rw [captureSet_ground_denot_applyAccess_comm]
+    simp only [CapabilitySet.applyAccess_M, CapabilitySet.applyMut]
+  have hD1 : (CaptureSet.cvar (.M .epsilon) (.there .here) : CaptureSet (s.extendCVars 2)).denot
+      ENVCV m1 = c1.ground_denot m1 := by
+    change (c1.applyAccess (.M .epsilon)).ground_denot m1 = _
+    rw [captureSet_ground_denot_applyAccess_comm]
+    simp only [CapabilitySet.applyAccess_M, CapabilitySet.applyMut]
+  have hdisj01 : CapabilitySet.disjoint (c0.ground_denot m1) (c1.ground_denot m1) := by
+    have h := hCSdisj
+    simp only [List.Vector.toList, List.pairwise_cons, List.mem_cons, List.not_mem_nil,
+      or_false, forall_eq, List.Pairwise.nil, and_true] at h
+    exact h.1
+  have key : CapabilitySet.Noninterference
+      ((CaptureSet.cvar (.M .epsilon) .here : CaptureSet (s.extendCVars 2)).denot ENVCV m1)
+      ((CaptureSet.cvar (.M .epsilon) (.there .here) : CaptureSet (s.extendCVars 2)).denot
+        ENVCV m1) := by
+    rw [hD0, hD1]
+    exact CapabilitySet.noninterference_of_disjoint hdisj01
+  have hsat : TypeEnv.Satisfy ENVCV
+      ⟨(SepCtx.empty.cons (.cvar (.M .epsilon) (.there .here))).cons
+          (.cvar (.M .epsilon) .here),
+       MutabilityCtx.empty⟩ m1 := by
+    refine ⟨?_, ?_, ?_, ?_⟩
+    · intro C hhas
+      cases hhas with
+      | here =>
+        exact CaptureSet.wf_subst (CaptureSet.wf_of_closed CaptureSet.IsClosed.cvar)
+          (from_TypeEnv_wf_in_heap henv_cvar)
+      | there hh =>
+        cases hh with
+        | here =>
+          exact CaptureSet.wf_subst (CaptureSet.wf_of_closed CaptureSet.IsClosed.cvar)
+            (from_TypeEnv_wf_in_heap henv_cvar)
+        | there hh2 => cases hh2
+    · intro C mode hhas; cases hhas
+    · intro C mode hhas; cases hhas
+    · intro Ca Cb hdist
+      exact sepctx_two_entry_ni key hdist rfl
+  have henv_lock : EnvTyping
+      (((Γ.push_cvar .access_only (.bound (.var (.M .epsilon) (.bound x)))).push_cvar
+        .access_only (.bound ((CaptureSet.var (.M .epsilon) (.bound x)).rename Rename.succ))).push_lock
+        ⟨(SepCtx.empty.cons (.cvar (.M .epsilon) (.there .here))).cons
+            (.cvar (.M .epsilon) .here),
+         MutabilityCtx.empty⟩)
+      (ENVCV.extend_lock) (k - Trace.readCount []) st1 m1 :=
+    ⟨hsat, henv_cvar⟩
+  have hvalT_lock : Ty.val_denot (ENVCV.extend_lock)
+      (T.rename (Rename.succ (k := .lock)))
+      (k - Trace.readCount []) st1 m1 (.var (.free l0)) :=
+    IDenot.equiv_ltr (lweaken_val_denot (env := ENVCV) (T := T)) hvalT_ao
+  set PS' := compute_peakset (ENVCV.extend_lock)
+    (T.rename (Rename.succ (k := .lock))).captureSet with hPS'def
+  set ENV2' := (ENVCV.extend_lock).extend_var l0 PS' with hENV2'def
+  have henv2' : EnvTyping
+      ((((Γ.push_cvar .access_only (.bound (.var (.M .epsilon) (.bound x)))).push_cvar
+        .access_only (.bound ((CaptureSet.var (.M .epsilon) (.bound x)).rename Rename.succ))).push_lock
+        ⟨(SepCtx.empty.cons (.cvar (.M .epsilon) (.there .here))).cons
+            (.cvar (.M .epsilon) .here),
+         MutabilityCtx.empty⟩),x:(T.rename (Rename.succ (k := .lock))))
+      ENV2' (k - Trace.readCount []) st1 m1 :=
+    ⟨hvalT_lock,
+     (compute_peakset_correct henv_lock (T.rename (Rename.succ (k := .lock))).captureSet).symm,
+     henv_lock⟩
+  have hdsep2 : ENV2'.EnvSepWf :=
+    ((TypeEnv.EnvSepWf.extend_cvars_access_only (CS := ⟨[c0, c1], hl⟩) hdsep).extend_lock).extend_var
+  have hD_C2 : CaptureSet.denot ENV2'
+      (((C2.rename (Rename.weakenCVars 2)).rename (Rename.succ (k := .lock))).rename
+        Rename.succ) m1
+      = C2.denot env store := by
+    have e1 := rebind_captureset_denot
+      (Rebind.weaken (env := ENVCV.extend_lock) (x := l0) (ps := PS'))
+      ((C2.rename (Rename.weakenCVars 2)).rename (Rename.succ (k := .lock)))
+    rw [← hENV2'def] at e1
+    have e0 := rebind_captureset_denot
+      (Rebind.lweaken (env := ENVCV)) (C2.rename (Rename.weakenCVars 2))
+    have e2 := rebind_captureset_denot
+      (Rebind.cweakenCVars (env := env) (m := m1)
+        (a := .access_only) (CS := ⟨[c0, c1], hl⟩)) C2
+    rw [← hENVCVdef] at e2
+    have hfun : CaptureSet.denot ENV2'
+        (((C2.rename (Rename.weakenCVars 2)).rename (Rename.succ (k := .lock))).rename
+          Rename.succ)
+        = CaptureSet.denot env C2 := e1.symm.trans (e0.symm.trans e2.symm)
+    calc CaptureSet.denot ENV2'
+          (((C2.rename (Rename.weakenCVars 2)).rename (Rename.succ (k := .lock))).rename
+            Rename.succ) m1
+        = CaptureSet.denot env C2 m1 := congrFun hfun m1
+      _ = C2.denot env store := (closed_capture_denot_monotonic hclosed_C2 hts hsub_m1).symm
+  have hD_fresh : CaptureSet.denot ENV2'
+      (((CaptureSet.freshCVars 2).rename (Rename.succ (k := .lock))).rename Rename.succ)
+      m1 = (CaptureSet.unionAll (⟨[c0, c1], hl⟩ : List.Vector (CaptureSet {}) 2)).ground_denot m1 := by
+    have e1 := rebind_captureset_denot
+      (Rebind.weaken (env := ENVCV.extend_lock) (x := l0) (ps := PS'))
+      ((CaptureSet.freshCVars 2).rename (Rename.succ (k := .lock)))
+    rw [← hENV2'def] at e1
+    have e0 := rebind_captureset_denot
+      (Rebind.lweaken (env := ENVCV)) (CaptureSet.freshCVars 2)
+    have e1m : CaptureSet.denot ENV2'
+        (((CaptureSet.freshCVars 2).rename (Rename.succ (k := .lock))).rename Rename.succ)
+        m1 = CaptureSet.denot ENVCV (CaptureSet.freshCVars 2) m1 :=
+      (congrFun (e0.trans e1) m1).symm
+    rw [e1m]
+    simp only [CaptureSet.denot, hENVCVdef]
+    exact freshCVars_denot_eq_unionAll m1
+  have hbudget_eq : CaptureSet.denot ENV2'
+      ((((C2.rename (Rename.weakenCVars 2)).rename (Rename.succ (k := .lock))).rename
+          Rename.succ) ∪
+       (((CaptureSet.freshCVars 2).rename (Rename.succ (k := .lock))).rename Rename.succ)) m1
+      = C2.denot env store ∪
+        (CaptureSet.unionAll (⟨[c0, c1], hl⟩ : List.Vector (CaptureSet {}) 2)).ground_denot m1 := by
+    change CaptureSet.denot ENV2'
+          (((C2.rename (Rename.weakenCVars 2)).rename (Rename.succ (k := .lock))).rename
+            Rename.succ) m1
+        ∪ CaptureSet.denot ENV2'
+          (((CaptureSet.freshCVars 2).rename (Rename.succ (k := .lock))).rename
+            Rename.succ) m1 = _
+    rw [hD_C2, hD_fresh]
+  have hc_C2 : m1.is_compatible (C2.denot env store) :=
+    Memory.is_compatible_frame hcompat_C2 hpresent_C2 hframe hsub_m1
+      (fun _ _ _ h => h)
+  have hc_wit : m1.is_compatible
+      ((CaptureSet.unionAll (⟨[c0, c1], hl⟩ : List.Vector (CaptureSet {}) 2)).ground_denot m1) := by
+    have h := hwl1 2 ⟨[c0, c1], hl⟩ (.free l0) rfl
+    rwa [← CaptureSet.ground_denot_eq_reachability] at h
+  have hcompat2 : m1.is_compatible (CaptureSet.denot ENV2'
+      ((((C2.rename (Rename.weakenCVars 2)).rename (Rename.succ (k := .lock))).rename
+          Rename.succ) ∪
+       (((CaptureSet.freshCVars 2).rename (Rename.succ (k := .lock))).rename Rename.succ)) m1) := by
+    rw [hbudget_eq]
+    intro mu l b ℓ hmem hheap
+    cases hmem with
+    | left hC2 => exact hc_C2 mu l b ℓ hC2 hheap
+    | right hW => exact hc_wit mu l b ℓ hW hheap
+  set Cbud := (((C2.rename (Rename.weakenCVars 2)).rename (Rename.succ (k := .lock))).rename
+          Rename.succ) ∪
+       (((CaptureSet.freshCVars 2).rename (Rename.succ (k := .lock))).rename Rename.succ)
+    with hCbud
+  set Rout := ((CaptureSet.var (.M .epsilon) (.bound x)) ∪ C2).denot env store with hRout
+  have hsubX : (CaptureSet.var (.M .epsilon) (.bound x) : CaptureSet s).denot env store ⊆ Rout :=
+    CapabilitySet.Subset.union_right_left
+  have hsubC2 : C2.denot env store ⊆ Rout := CapabilitySet.Subset.union_right_right
+  have hbucket_cov : ∀ mu l, (CaptureSet.denot ENV2' Cbud m1).hasmem mu l →
+      Rout.covers mu l ∨ (m1.heap l ≠ none ∧ store.lookup l = none) := by
+    intro mu l hmem
+    rw [hCbud] at hmem
+    erw [hbudget_eq] at hmem
+    cases hmem with
+    | left hC2 =>
+      exact Or.inl (CapabilitySet.covers_mono hsubC2 (CapabilitySet.hasmem_implies_covers hC2))
+    | right hW =>
+      change (c0.ground_denot m1 ∪ (c1.ground_denot m1 ∪
+        (CaptureSet.empty : CaptureSet {}).ground_denot m1)).hasmem mu l at hW
+      left
+      cases hW with
+      | left h0 => exact CapabilitySet.covers_mono hsubX (hbound c0 (by simp) mu l h0)
+      | right h =>
+        cases h with
+        | left h1 => exact CapabilitySet.covers_mono hsubX (hbound c1 (by simp) mu l h1)
+        | right he => exact absurd he CapabilitySet.not_hasmem_empty
+  have hbucket_drop : ∀ l, (CaptureSet.denot ENV2' Cbud m1).hasmem .drop l →
+      Rout.hasmem .drop l ∨ (m1.heap l ≠ none ∧ store.lookup l = none) := by
+    intro l hmem
+    rw [hCbud] at hmem
+    erw [hbudget_eq] at hmem
+    cases hmem with
+    | left hC2 => exact Or.inl (hasmem_drop_of_subset hsubC2 hC2)
+    | right hW => exact absurd hW (CaptureSet.unionAll_ground_denot_drop_free hCSdf l)
+  have he2 := hu ENV2' (k - Trace.readCount []) st1 m1 henv2' hdsep2 hcompat2
+  simp only [Ty.exi_exp_denot] at he2
+  have he2' := (he2 hmt1).1
+  set PS := compute_peakset ENVCV T.captureSet with hPSdef
+  have hexpr :
+      (u.subst ((Subst.from_TypeEnv env).liftCVars 2).lift).subst
+        (Subst.unpack ⟨[c0, c1], hl⟩ (.free l0))
+      = (u.rename ((Rename.succ (k := .lock)).lift)).subst
+        (Subst.from_TypeEnv ENV2') := by
+    have hL :
+        (u.subst ((Subst.from_TypeEnv env).liftCVars 2).lift).subst
+          (Subst.unpack ⟨[c0, c1], hl⟩ (.free l0))
+        = u.subst (Subst.from_TypeEnv (ENVCV.extend_var l0 PS)) := by
+      rw [hENVCVdef, Exp.subst_comp]
+      exact congrArg (u.subst ·) (Subst.from_TypeEnv_weaken_unpack (ps := PS))
+    have hR :
+        (u.rename ((Rename.succ (k := .lock)).lift)).subst (Subst.from_TypeEnv ENV2')
+        = u.subst (Subst.from_TypeEnv (ENVCV.extend_var l0 PS)) := by
+      rw [← Exp.subst_asSubst, Exp.subst_comp, hENV2'def]
+      exact congrArg (u.subst ·)
+        (Subst.from_TypeEnv_lweaken_unpack (E := ENVCV) (x := l0))
+    rw [hL, hR]
+  rw [hexpr]
+  refine ⟨?_, ?_, ?_⟩
+  · refine ⟨he2'.1, ?_⟩
+    intro t2 vv m' hbs hguard
+    have hbud2 : t2.readCount < k - Trace.readCount [] := by
+      rw [Trace.readCount_append] at hguard; omega
+    obtain ⟨hok2, st'', hwle2, hmt2, hval2, hpb2, hwl2⟩ :=
+      he2'.2 t2 vv m' hbs hbud2
+    have hidx_eq :
+        k - Trace.readCount ([] ++ t2) = (k - Trace.readCount []) - t2.readCount := by
+      rw [Trace.readCount_append, Nat.sub_sub]
+    have hjk : k - Trace.readCount ([] ++ t2) ≤
+        (k - Trace.readCount []) - t2.readCount := Nat.le_of_eq hidx_eq
+    have h2le : (k - Trace.readCount []) - t2.readCount ≤ k - Trace.readCount [] :=
+      Nat.sub_le _ _
+    have hwle_fin : WorldLe (st''.trunc hjk) m'
+        (st.trunc (Nat.sub_le k (Trace.readCount ([] ++ t2)))) store := by
+      have hwle1_desc := WP.WorldLe.trunc h2le hwle1
+      rw [WP.World.trunc_trunc] at hwle1_desc
+      have hwle_comp := WorldLe.trans hwle1_desc hwle2
+      have h := WP.WorldLe.trunc hjk hwle_comp
+      rw [WP.World.trunc_trunc] at h
+      exact h
+    refine ⟨?_, st''.trunc hjk, hwle_fin, MemTyped_trunc hjk hmt2, ?_, ?_, hwl2⟩
+    · have hrebucket : ∀ mode l, Trace.touched t2 l →
+          (CaptureSet.denot ENV2' Cbud m1).covers mode l →
+          Rout.covers mode l ∨ l ∈ Trace.allocList ([] : Trace) := by
+        intro mode l htouched hcov
+        obtain ⟨mu', hm_b, hle⟩ := CapabilitySet.covers_imp_exists_hasmem hcov
+        rcases hbucket_cov mu' l hm_b with hRcov | ⟨hm1pres, hfresh_store⟩
+        · exact Or.inl (CapabilitySet.covers_weaken hRcov hle)
+        · right
+          rw [Trace.mem_allocList]
+          obtain ⟨c', hc'⟩ := BigStep.trace_cells_cap hbs l htouched
+          cases hcell : m1.heap l with
+          | none => exact absurd hcell hm1pres
+          | some cell_small =>
+            obtain ⟨w', hw', hsubcell⟩ := hbs.subsumes l cell_small hcell
+            have hweq : w' = .capability c' := Option.some.inj (hw'.symm.trans hc')
+            subst hweq
+            cases cell_small with
+            | capability c0 => exact hallocd hfresh_store hcell
+            | val _ => simp [Cell.subsumes] at hsubcell
+            | masked => simp [Cell.subsumes] at hsubcell
+      refine TraceOkFrom.append_seq TraceOk.nil ?_
+      have htr2 := TraceOkFrom.translate (S := Trace.allocList ([] : Trace)) hok2 hrebucket
+      simpa using htr2
+    · have hv1 := IDenot.equiv_rtl
+        (weaken_exi_val_denot (env := ENVCV.extend_lock)
+          (T := (U.rename (Rename.weakenCVars 2)).rename (Rename.succ (k := .lock)))
+          (x := l0) (ps := PS')) hval2
+      have hv1b := IDenot.equiv_rtl
+        (lweaken_exi_val_denot (env := ENVCV) (T := U.rename (Rename.weakenCVars 2)))
+        hv1
+      have hv2 := IDenot.equiv_rtl
+        (cweakenCVars_exi_val_denot (env := env) (m := m1)
+          (a := .access_only) (CS := ⟨[c0, c1], hl⟩) (T := U)) hv1b
+      exact exi_val_denot_down_trunc (typed_env_is_downward_closed hts) U hjk vv hv2
+    · intro n_v cs_v x_v heq_v mu l hmem_l
+      rcases hpb2 n_v cs_v x_v heq_v mu l hmem_l with ⟨hcov_b, hdrop_b⟩
+        | hfresh_m1
+      · obtain ⟨mu', hm_b, hle⟩ := CapabilitySet.covers_imp_exists_hasmem hcov_b
+        rcases hbucket_cov mu' l hm_b with hRcov | ⟨_, hfresh_store⟩
+        · rcases hbucket_drop l hdrop_b with hRdrop | ⟨_, hfresh_store⟩
+          · exact Or.inl ⟨CapabilitySet.covers_weaken hRcov hle, hRdrop⟩
+          · exact Or.inr hfresh_store
+        · exact Or.inr hfresh_store
+      · exact Or.inr (Heap.none_of_subsumes_none hsub_m1 hfresh_m1)
+  · rw [← hbudget_eq]
+    intro tt mm ee hred hbud
+    exact (he2 hmt1).2 hred hbud
+  · intro mode l hcov
+    rw [← hbudget_eq] at hcov
+    obtain ⟨mu', hm_b, hle⟩ := CapabilitySet.covers_imp_exists_hasmem hcov
+    rcases hbucket_cov mu' l hm_b with hRcov | hfresh
+    · exact Or.inl (CapabilitySet.covers_weaken hRcov hle)
+    · exact Or.inr hfresh
 
 theorem Ty.splitBody_closed {C : CaptureSet s} {T : Ty .capt s} (hT : T.IsClosed) :
     (Ty.splitBody C T).IsClosed := by
@@ -7488,7 +7975,89 @@ theorem sem_typ_splitb {x : BVar s .var} {n : Nat} {C C2 : CaptureSet s} {T : Ty
       Rename.succ)) :
   SemanticTyping ((.var (.M .epsilon) (.bound x)) ∪ C2) Γ
     (Exp.unpack 2 (Exp.split (.bound x) n) u) U := by
-  sorry
+  intro env k st store hts hdsep hcompat
+  simp only [Ty.exi_exp_denot, List.empty_eq]
+  intro hmt
+  simp only [Exp.subst, Subst.from_TypeEnv, Var.subst]
+  have hcompat_X : store.is_compatible
+      ((CaptureSet.var (.M .epsilon) (.bound x) : CaptureSet s).denot env store) :=
+    Memory.is_compatible_union_left hcompat
+  have hcompat_C2 : store.is_compatible (C2.denot env store) :=
+    Memory.is_compatible_union_right hcompat
+  have hcompat_split : store.is_compatible
+      (((.var (.M .epsilon) (.bound x)) ∪ (.var .drop (.bound x)) : CaptureSet s).denot
+        env store) := by
+    intro mu l b ℓ hmem hheap
+    cases hmem with
+    | left h => exact hcompat_X mu l b ℓ h hheap
+    | right h =>
+      have hd : ((reachability_of_loc store.heap (env.lookup_var x).1).applyAccess
+          .drop).hasmem mu l := h
+      rw [CapabilitySet.applyAccess_drop] at hd
+      obtain ⟨_, mu', hm'⟩ := CapabilitySet.hasmem_to_drop_imp hd
+      apply hcompat_X mu' l b ℓ _ hheap
+      change ((reachability_of_loc store.heap (env.lookup_var x).1).applyAccess
+        (.M .epsilon)).hasmem mu' l
+      simpa only [CapabilitySet.applyAccess_M, CapabilitySet.applyMut] using hm'
+  obtain ⟨hev, hps⟩ := sem_split_strong (n := n) hΓ hx hts hdsep hcompat_split hmt
+  have hpresent_C2 : ∀ mu l, (C2.denot env store).hasmem mu l → store.heap l ≠ none := by
+    intro mu l hmem
+    simp only [CaptureSet.denot, CaptureSet.ground_denot_eq_reachability] at hmem
+    exact CaptureSet.reachability_dom hmem
+  have hprefix : PrefixSafe k store
+      (Exp.unpack 2 (Exp.split (.free (env.lookup_var x).1) n)
+        (u.subst ((Subst.from_TypeEnv env).liftCVars 2).lift))
+      (((CaptureSet.var (.M .epsilon) (.bound x)) ∪ C2).denot env store) := by
+    apply PrefixSafe.unpack (hps _)
+    intro t1 m1 x0 cs hbs hbud
+    obtain ⟨⟨_, st1, hwle1, hmt1, hval1, _, hwl1⟩, ht1, hwit⟩ :=
+      hev.2 t1 (.pack cs x0) m1 hbs hbud
+    have hres : resolve m1.heap (Exp.pack cs x0) = some (.pack cs x0) := rfl
+    simp only [Ty.exi_val_denot] at hval1
+    obtain ⟨CS, xx, hres_eq, hCSwf, hCSdf, hCSdisj, hvalT⟩ := hval1
+    rw [hres] at hres_eq
+    obtain ⟨rfl, rfl⟩ : cs = CS ∧ x0 = xx := by
+      have h := Option.some.inj hres_eq
+      rw [Exp.pack.injEq] at h
+      exact ⟨eq_of_heq h.2.1, h.2.2⟩
+    cases x0 with
+    | bound b => cases b
+    | free l0 =>
+      have hcont := sem_typ_unpackb_cont hclosed_C2 hu hts hdsep hpresent_C2 hcompat_C2
+        ht1 hwle1 hmt1 hCSwf hCSdf hCSdisj (hwit cs (.free l0) rfl) hvalT hwl1
+        (BigStep.subsumes hbs) (BigStep.frameLive hbs) (BigStep.appears_allocd_of_cap hbs)
+      exact ⟨_, hcont.2.2, hcont.2.1⟩
+  refine ⟨?_, hprefix⟩
+  refine Eval.eval_unpack hev
+    (fun t v m' hover hguard => absurd hguard (Nat.not_lt.mpr hover))
+    (fun {t1 m1 v} hbud hq1 => ?_)
+    (fun {t1 m1 x0 cs} hbud hsub_m1 hframe hallocd _hwf_x _hwf_cs hq1 => ?_)
+  · obtain ⟨⟨_, st1, _, _, hval1, _, _⟩, _, _⟩ := hq1 hbud
+    simp only [Ty.exi_val_denot] at hval1
+    obtain ⟨CS, x, heq, hCSwf, _, _, hvalT⟩ := hval1
+    have hvpack : v.IsPack 2 := resolve_is_pack heq Exp.IsPack.pack
+    have hveq : v = .pack CS x := resolve_pack_eq heq hvpack
+    subst hveq
+    refine ⟨Exp.IsPack.pack, Exp.WfInHeap.wf_pack hCSwf ?_⟩
+    have hiw : (TypeEnv.extend_cvars env m1 .can_drop CS).is_implying_wf :=
+      (typed_env_is_implying_wf hts).extend_cvars
+    cases val_denot_implies_wf hiw _ (k - t1.readCount) st1 m1 (.var x) hvalT with
+    | wf_var hx => exact hx
+  · obtain ⟨⟨_, st1, hwle1, hmt1, hval1, _, hwl1⟩, ht1, hwit⟩ := hq1 hbud
+    have hres : resolve m1.heap (Exp.pack cs x0) = some (.pack cs x0) := rfl
+    simp only [Ty.exi_val_denot] at hval1
+    obtain ⟨CS, xx, hres_eq, hCSwf, hCSdf, hCSdisj, hvalT⟩ := hval1
+    rw [hres] at hres_eq
+    obtain ⟨rfl, rfl⟩ : cs = CS ∧ x0 = xx := by
+      have h := Option.some.inj hres_eq
+      rw [Exp.pack.injEq] at h
+      exact ⟨eq_of_heq h.2.1, h.2.2⟩
+    cases x0 with
+    | bound b => cases b
+    | free l0 =>
+      exact (sem_typ_unpackb_cont hclosed_C2 hu hts hdsep hpresent_C2 hcompat_C2
+        ht1 hwle1 hmt1 hCSwf hCSdf hCSdisj (hwit cs (.free l0) rfl) hvalT hwl1
+        hsub_m1 hframe hallocd).1
 
 theorem fundamental
   (hΓ : Γ.IsClosed)
