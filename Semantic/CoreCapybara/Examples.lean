@@ -1,10 +1,11 @@
 import Semantic.CoreCapybara.Fundamental
+import Semantic.CoreCapybara.SafetyReduce
 
 /-!
 # Worked examples for owned splitting
 
 Typing derivations, checked against the extended CoreCapybara rules, for programs that use
-owned and borrowed `split`, `concat`, `idx`, pairs and `par`.  By `fundamental`, each typed
+owned and borrowed `split`, `concat`, `idx`, array and pair literals, and `par`.  By `fundamental`, each typed
 term is semantically well typed, so the adequacy results (type safety, memory safety,
 data-race freedom) apply.
 -/
@@ -62,7 +63,8 @@ macro_rules
 macro "rn_norm" : tactic => `(tactic| (
   simp only [CaptureSet.rename, Var.rename, rn_succ_var, rn_lift_here, rn_lift_there,
     rn_comp_var, rn_id_var, Rename.weakenCVars, CaptureSet.freshCVars, CaptureSet.applyAccess,
-    CaptureSet.applyDrop, CaptureSet.applyMut, Ty.captureSet, Ty.rename];
+    CaptureSet.applyDrop, CaptureSet.applyMut, Ty.captureSet, Ty.rename, CaptureSet.ofVars,
+    List.map_cons, List.map_nil];
   repeat (first | erw [rn_lift_there] | erw [rn_lift_here] | erw [rn_succ_var])))
 
 theorem sc_var_trans {Γ : Ctx s} {x : BVar s .var} {T : Ty .capt s} {C : CaptureSet s}
@@ -649,5 +651,136 @@ theorem borrow_sound : SemanticTyping
     ΓB borrowBody (.typ .unit) :=
   fundamental ΓB_closed borrow_typed
 
+
+/-! ## A closed program: allocate, build an array, split, pair, join -/
+
+/-- `unpack` of a head that uses no capabilities. -/
+theorem HasType.unpack_pure {Γ : Ctx s} {t : Exp s} {n : Nat} {T : Ty .capt (s.extendCVars n)}
+    {u : Exp ((s.extendCVars n),x)} {C2 : CaptureSet s} {U : Ty .exi s}
+    (hC2 : C2.IsClosed) (hU : U.IsClosed)
+    (h1 : HasType {} Γ t (.exi n T))
+    (h2 : HasType
+      ((((C2.rename (Rename.weakenCVars n)).rename (Rename.succ (k := .lock))).rename
+          Rename.succ) ∪
+       (((CaptureSet.freshCVars n).rename (Rename.succ (k := .lock))).rename Rename.succ) ∪
+       ((((CaptureSet.freshCVars n).rename (Rename.succ (k := .lock))).rename
+          Rename.succ).applyAccess .drop))
+      (((Ctx.extendCVars .can_drop Γ n).push_lock
+          ⟨(SepCtx.empty.cons (C2.rename (Rename.weakenCVars n))).cons
+            (CaptureSet.freshCVars n),
+           MutabilityCtx.empty⟩),x:(T.rename (Rename.succ (k := .lock))))
+      (u.rename ((Rename.succ (k := .lock)).lift))
+      ((((U.rename (Rename.weakenCVars n)).rename (Rename.succ (k := .lock))).rename
+        Rename.succ))) :
+    HasType C2 Γ (.unpack n t u) U := by
+  have hd : (((CaptureSet.empty : CaptureSet s).peakset Γ).consumed).droppable Γ := by
+    intro a c h
+    simp only [PeakSet.consumed, CaptureSet.peakset] at h
+    erw [peaks_empty'] at h
+    exact absurd h CaptureSet.cvar_not_subset_empty
+  have h := HasType.unpack (C1 := {}) (C2 := C2) (.seq_sep .sep_empty) hd h1
+    (by rw [kill_peaks_empty']; exact h2)
+  exact HasType.subtyp h (.sc_union (.sc_elem .empty) (.sc_elem .refl)) .refl hC2 hU
+
+/-- Capture set of a cell type (used to name the cells' captures in `HasType.arr`). -/
+def cellCap : Ty .capt s → CaptureSet s
+  | .cell C _ => C
+  | _ => {}
+
+/-- `HasType.arr` with each cell's capture set read off the context. -/
+theorem HasType.arr_ctx {Γ : Ctx s} {xs : List (BVar s .var)} {T : Ty .capt s}
+    (hΓ : Γ.IsClosed) (hT : T.IsClosed)
+    (hl : ∀ x ∈ xs, Γ.LookupVar x (.cell (cellCap (Γ.lookup_var x)) T))
+    (hp : xs.Pairwise (fun x y =>
+      SepCheck Γ (.var (.M .epsilon) (.bound x)) (.var (.M .epsilon) (.bound y)))) :
+    HasType {} Γ (.arr (xs.map .bound)) (.typ (.arr (CaptureSet.ofVars (xs.map .bound)) T)) :=
+  HasType.arr (Cs := fun x => cellCap (Γ.lookup_var x)) hΓ hT hl hp
+
+/-- A closed program: allocate two cells, build an array from them, split it, pair the
+halves, and join them again. -/
+def closedProg : Exp {} :=
+  .letin .unit
+  (.unpack 1 (.alloc (.bound .here))
+  (.unpack 1 (.alloc (.bound (.there (.there .here))))
+  (.letin (.arr [(.bound (.there (.there .here))), (.bound .here)])
+  (.unpack 2 (.split (.bound .here) 1)
+    (.letin (.fst (.bound .here))
+    (.letin (.snd (.bound (.there .here)))
+    (.letin (.pair (.bound (.there .here)) (.bound .here))
+    (.letin (.concat (.bound (.there (.there .here))) (.bound (.there .here))) .unit))))))))
+
+theorem closedProg_typed : HasType {} Ctx.empty closedProg (.typ .unit) := by
+  refine HasType.letin_pure (by auto_closed) (by auto_closed) HasType.unit ?k0
+  refine HasType.unpack_pure (by auto_closed) (by auto_closed)
+    (HasType.alloc (HasType.var (by auto_closed) .here)) ?k1
+  refine HasType.unpack_pure (by auto_closed) (by auto_closed)
+    (HasType.alloc (HasType.var (by auto_closed) (.there (.there (.there .here))))) ?k2
+  refine HasType.letin_pure (by auto_closed) (by auto_closed)
+    (HasType.arr_ctx (xs := [(.there (.there (.there .here))), .here]) (T := .unit)
+      (by auto_closed) (by auto_closed) ?lk ?pw) ?k3
+  case lk =>
+    intro y hy
+    simp only [List.mem_cons, List.not_mem_nil, or_false] at hy
+    rcases hy with rfl | rfl
+    · simp only [Ctx.extendCVars, Ctx.push_lock, Ctx.push_var, Ctx.push_cvar]
+      exact Ctx.LookupVar.there (.there (.there .here))
+    · simp only [Ctx.extendCVars, Ctx.push_lock, Ctx.push_var, Ctx.push_cvar]
+      repeat constructor
+  case pw =>
+    refine List.Pairwise.cons ?_ (List.Pairwise.cons (fun _ h => nomatch h) List.Pairwise.nil)
+    intro y hy
+    simp only [List.mem_cons, List.not_mem_nil, or_false] at hy
+    subst hy
+    sep_tac
+  refine HasType.subtyp
+    (HasType.unpack (C1 := (.var (.M .epsilon) (.bound .here)) ∪ (.var .drop (.bound .here)))
+      (C2 := {}) ?seqS ?dropS (HasType.split ?clS ?drS (HasType.var ?clvS .here)) ?bodyS)
+    ?scS .refl ?ccS ?uuS
+  case seqS => exact .seq_sep (.sep_symm .sep_empty)
+  case dropS =>
+    intro a c h
+    peaks_at h
+    cvar_cases h
+  case drS =>
+    intro a c h
+    peaks_at h
+    cvar_cases h
+  case scS =>
+    rn_norm
+    sc_tac
+  case bodyS =>
+    peaks_goal
+    simp only [Ctx.push_var, Ctx.push_lock, Ctx.extendCVars, Ctx.push_cvar]
+    repeat (first | erw [kill_cvar_there'] | erw [kill_cvar_here'])
+    refine HasType.letin_pure (by auto_closed) (by auto_closed)
+      (HasType.fst (HasType.var (by auto_closed) .here)) ?b1
+    refine HasType.letin_pure (by auto_closed) (by auto_closed)
+      (HasType.snd (HasType.var (by auto_closed) (.there .here))) ?b2
+    refine HasType.letin_pure (by auto_closed) (by auto_closed)
+      (HasType.pair (HasType.var (by auto_closed) (.there .here))
+        (HasType.var (by auto_closed) .here)) ?b3
+    refine HasType.letin_pure (by auto_closed) (by auto_closed)
+      (HasType.concat (HasType.var (by auto_closed) (.there (.there .here)))
+        (HasType.var (by auto_closed) (.there .here)) ?sepC) ?b4
+    case sepC =>
+      rn_norm
+      sep_tac
+    exact HasType.subtyp HasType.unit (.sc_elem .empty) .refl (by auto_closed) (by auto_closed)
+  all_goals auto_closed
+
+/-- **End to end.** The closed program is semantically well typed in the empty context, the
+platform context with no cells. -/
+theorem closedProg_sound : SemanticTyping {} Ctx.empty closedProg (.typ .unit) :=
+  fundamental Ctx.IsClosed.empty closedProg_typed
+
+/-- Hence, by Capybara's adequacy theorem, it never gets stuck. -/
+theorem closedProg_safe :
+    (closedProg.subst (Subst.from_TypeEnv (TypeEnv.platform_of 0))).SafeWithPlatform 0 :=
+  adequacy_platform (N := 0) closedProg_sound
+
+/-- The same under the interleaving (parallel) schedule. -/
+theorem closedProg_safe_reduce :
+    (closedProg.subst (Subst.from_TypeEnv (TypeEnv.platform_of 0))).SafeWithPlatformReduce 0 :=
+  adequacy_platform_reduce_typed (N := 0) closedProg_typed
 
 end CoreCapybara
