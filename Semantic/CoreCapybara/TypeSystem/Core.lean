@@ -294,6 +294,17 @@ inductive Subtyp : Ctx s -> Ty k s -> Ty k s -> Prop where
   Subcapt Γ cs1 cs2 ->
   --------------------------
   Subtyp Γ (.cap cs1) (.cap cs2)
+| arr {cs1 cs2 : CaptureSet s} {T : Ty .capt s} :
+  -- Like `cell`: capture-covariant, element type invariant.
+  Subcapt Γ cs1 cs2 ->
+  --------------------------
+  Subtyp Γ (.arr cs1 T) (.arr cs2 T)
+| pair {cs1 cs2 : CaptureSet s} {T1 T2 U1 U2 : Ty .capt s} :
+  Subcapt Γ cs1 cs2 ->
+  Subtyp Γ T1 U1 ->
+  Subtyp Γ T2 U2 ->
+  --------------------------
+  Subtyp Γ (.pair cs1 T1 T2) (.pair cs2 U1 U2)
 | poly_cap {S : Ty .capt s} {T : Ty .exi (s,X)} {cs1 cs2 : CaptureSet s} :
   Subcapt Γ cs1 cs2 ->
   --------------------------

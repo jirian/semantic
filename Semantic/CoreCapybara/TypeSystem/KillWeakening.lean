@@ -2260,6 +2260,8 @@ theorem Subtyp.erase_kill {s : Sig} {Γ : Ctx s} {sort : TySort} {T1 T2 : Ty sor
   | reader hsc => exact .reader (hsc.erase_kill K)
   | cap hsc => exact .cap (hsc.erase_kill K)
   | poly_cap hsc => exact .poly_cap (hsc.erase_kill K)
+  | arr hsc => exact .arr (hsc.erase_kill K)
+  | pair hsc _ _ ih1 ih2 => exact .pair (hsc.erase_kill K) (ih1 K) (ih2 K)
   | typ _ ih => exact .typ (ih K)
 
 theorem SeqComp.erase_kill {s : Sig} {Γ : Ctx s} {C1 C2 : CaptureSet s}

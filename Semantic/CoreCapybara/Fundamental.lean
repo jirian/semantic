@@ -5180,6 +5180,39 @@ lemma sem_subtyp_poly_cap {S : Ty .capt s} {cs1 cs2 : CaptureSet s} {T : Ty .exi
       (from_TypeEnv_wf_in_heap htyping')
   · exact CapabilitySet.Subset.trans hR0_sub1 (hcs env j st' m' htyping')
 
+/-- Capture-covariance for arrays with the element type held rigid (same skeleton as
+    `sem_subtyp_cell`, applied to every cell of the array). -/
+lemma sem_subtyp_arr {cs1 cs2 : CaptureSet s} {T : Ty .capt s}
+  (hcs : SemSubcapt Γ cs1 cs2) (hcs2_closed : CaptureSet.IsClosed cs2) :
+  SemSubtyp Γ (.arr cs1 T) (.arr cs2 T) := by
+  unfold SemSubtyp
+  intro env ki st H htyping hdsep j hjk st' m' hwle e hv
+  have htyping' := env_typing_worldle_trunc hjk htyping hwle
+  simp only [Ty.val_denot] at hv ⊢
+  obtain ⟨hwf_e, _hwf_cs1, ls, hres, hnd, hcells⟩ := hv
+  refine ⟨hwf_e, ?_, ls, hres, hnd, fun l hl => ?_⟩
+  · exact CaptureSet.wf_subst (CaptureSet.wf_of_closed hcs2_closed)
+      (from_TypeEnv_wf_in_heap htyping')
+  · obtain ⟨n0, ℓ0, R, hlook, hcov1, hst, hR⟩ := hcells l hl
+    exact ⟨n0, ℓ0, R, hlook, CapabilitySet.covers_mono (hcs env j st' m' htyping') hcov1, hst, hR⟩
+
+/-- Pairs are covariant in their capture set and in both components. -/
+lemma sem_subtyp_pair {cs1 cs2 : CaptureSet s} {T1 T2 U1 U2 : Ty .capt s}
+  (hcs : SemSubcapt Γ cs1 cs2) (hcs2_closed : CaptureSet.IsClosed cs2)
+  (h1 : SemSubtyp Γ T1 U1) (h2 : SemSubtyp Γ T2 U2) :
+  SemSubtyp Γ (.pair cs1 T1 T2) (.pair cs2 U1 U2) := by
+  unfold SemSubtyp at h1 h2 ⊢
+  intro env ki st H htyping hdsep j hjk st' m' hwle e hv
+  have htyping' := env_typing_worldle_trunc hjk htyping hwle
+  simp only [Ty.val_denot] at hv ⊢
+  obtain ⟨hwf_e, _hwf_cs1, x, y, hres, hsub, hx, hy⟩ := hv
+  refine ⟨hwf_e, ?_, x, y, hres, ?_,
+    h1 env ki st H htyping hdsep j hjk st' m' hwle _ hx,
+    h2 env ki st H htyping hdsep j hjk st' m' hwle _ hy⟩
+  · exact CaptureSet.wf_subst (CaptureSet.wf_of_closed hcs2_closed)
+      (from_TypeEnv_wf_in_heap htyping')
+  · exact CapabilitySet.Subset.trans hsub (hcs env j st' m' htyping')
+
 theorem fundamental_subtyp
   (hT1 : T1.IsClosed) (hT2 : T2.IsClosed)
   (hsub : Subtyp Γ T1 T2) :
@@ -5248,6 +5281,16 @@ theorem fundamental_subtyp
     cases hT1 with | poly _ _ _ =>
     cases hT2 with | poly _ hcs2 _ =>
     exact sem_subtyp_poly_cap (fundamental_subcapt hsub_cs) hcs2
+  | arr hsub_cs =>
+    intro hT1 hT2
+    cases hT1 with | arr _ _ =>
+    cases hT2 with | arr hcs2 _ =>
+    exact sem_subtyp_arr (fundamental_subcapt hsub_cs) hcs2
+  | pair hsub_cs _ _ ih1 ih2 =>
+    intro hT1 hT2
+    cases hT1 with | pair _ hT1a hT1b =>
+    cases hT2 with | pair hcs2 hT2a hT2b =>
+    exact sem_subtyp_pair (fundamental_subcapt hsub_cs) hcs2 (ih1 hT1a hT2a) (ih2 hT1b hT2b)
 
 theorem sem_typ_subtyp
   {C1 C2 : CaptureSet s} {E1 E2 : Ty .exi s}
