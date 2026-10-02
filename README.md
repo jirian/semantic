@@ -106,8 +106,8 @@ of this repository.
 
 ## Extension: owned splitting of capabilities (branch `split-capabilities`)
 
-This branch extends CoreCapybara with arrays of cells, **owned splitting**, joining,
-indexing and pairs, and re-establishes the fundamental theorem (and hence all adequacy
+This branch extends CoreCapybara with arrays of cells, **owned and borrowed splitting**,
+joining, indexing and pairs, and re-establishes the fundamental theorem (and hence all adequacy
 results above) for the extended calculus. The development remains sorry-free.
 
 | Notion | Lean declaration | File |
@@ -119,4 +119,5 @@ results above) for the extended calculus. The development remains sorry-free.
 | Interpretation of arrays (distinct, store-typed cells) and pairs | `Ty.val_denot` cases `.arr`, `.pair` | [Denotation/Core.lean](Semantic/CoreCapybara/Denotation/Core.lean) |
 | Soundness of owned split | `sem_typ_split` | [Fundamental.lean](Semantic/CoreCapybara/Fundamental.lean) |
 | Soundness of join / index / literals / pairs | `sem_typ_concat`, `sem_typ_idx`, `sem_typ_arr`, `sem_typ_pair`, `sem_typ_fst`, `sem_typ_snd` | [Fundamental.lean](Semantic/CoreCapybara/Fundamental.lean) |
-| Worked examples: split/join/re-split round trip; `process` (split, write both halves in `par`, consume one half, return the other as fresh) | `roundTrip_typed`/`roundTrip_sound`, `procBody_typed`/`procBody_sound` | [Examples.lean](Semantic/CoreCapybara/Examples.lean) |
+| Borrowed (scoped) split, Capybara's `splitAt`: `unpack 2 (split x n) u` without consuming `x`; halves are access-only capture variables bounded by `{x}`, separated by a lock | `HasType.splitb`; `sem_typ_splitb`, `sem_typ_unpackb_cont`, `sem_split_strong` | [TypeSystem/Core.lean](Semantic/CoreCapybara/TypeSystem/Core.lean), [Fundamental.lean](Semantic/CoreCapybara/Fundamental.lean) |
+| Worked examples: split/join/re-split round trip; `process` (split, write both halves in `par`, consume one half, return the other as fresh); borrowed split (write both halves in `par`, then reuse the parent) | `roundTrip_sound`, `procBody_sound`, `borrow_sound` | [Examples.lean](Semantic/CoreCapybara/Examples.lean) |

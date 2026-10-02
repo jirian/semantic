@@ -4,8 +4,9 @@ import Semantic.CoreCapybara.Fundamental
 # Worked examples for owned splitting
 
 Typing derivations, checked against the extended CoreCapybara rules, for programs that use
-`split`, `concat`, `idx`, pairs and `par`.  By `fundamental`, each typed term is semantically
-well typed, so the adequacy results (type safety, memory safety, data-race freedom) apply.
+owned and borrowed `split`, `concat`, `idx`, pairs and `par`.  By `fundamental`, each typed
+term is semantically well typed, so the adequacy results (type safety, memory safety,
+data-race freedom) apply.
 -/
 
 -- De Bruijn indices in the concrete derivations below make some lines long.
@@ -92,6 +93,13 @@ theorem sep_left_dropvar {Γ : Ctx s} {x : BVar s .var} {T : Ty .capt s} {C : Ca
     SepCheck Γ (.var .drop (.bound x)) C :=
   .sep_mono h (.sc_drop_mono (C1 := .var (.M .epsilon) (.bound x)) (.sc_var hlk))
 
+theorem sep_left_cvar {Γ : Ctx s} {c : BVar s .cvar} {cb : CaptureBound s}
+    {B C : CaptureSet s}
+    (hlk : Γ.LookupCVar c .access_only cb) (hcb : cb = .bound B) (h : SepCheck Γ B C) :
+    SepCheck Γ (.cvar (.M .epsilon) c) C := by
+  subst hcb
+  exact .sep_mono h (.sc_cvar hlk)
+
 /-- Distinctness of two concrete de Bruijn indices. -/
 macro "neq_tac" : tactic => `(tactic| (intro h; simp [Rename.succ] at h <;> cases h))
 
@@ -106,10 +114,15 @@ macro_rules
       | (apply SepCheck.sep_symm; apply SepCheck.sep_union <;> (apply SepCheck.sep_symm; sep_tac))
       | exact SepCheck.sep_droppable ⟨rfl, rfl, by neq_tac⟩
       | exact SepCheck.sep_droppable ⟨rfl, rfl, by intro h; cases h⟩
+      | exact SepCheck.sep_lock (by repeat constructor)
+          (by first | exact .here_there .here | exact .symm (.here_there .here))
       | exact sep_left_var (by repeat constructor) (by (try rn_norm); sep_tac)
       | exact sep_left_dropvar (by repeat constructor) (by (try rn_norm); sep_tac)
       | exact SepCheck.sep_symm (sep_left_var (by repeat constructor) (by (try rn_norm); (apply SepCheck.sep_symm); sep_tac))
-      | exact SepCheck.sep_symm (sep_left_dropvar (by repeat constructor) (by (try rn_norm); (apply SepCheck.sep_symm); sep_tac)))
+      | exact SepCheck.sep_symm (sep_left_dropvar (by repeat constructor) (by (try rn_norm); (apply SepCheck.sep_symm); sep_tac))
+      | exact sep_left_cvar (by repeat constructor) (by rfl) (by (try rn_norm); sep_tac)
+      | exact SepCheck.sep_symm (sep_left_cvar (by repeat constructor) (by rfl)
+          (by (try rn_norm); (apply SepCheck.sep_symm); sep_tac)))
 
 theorem kill_cvar_there' (Γ : Ctx s) (b : Binding s k) (c : BVar s .cvar) :
     (Γ.push b).kill_cvar c.there = (Γ.kill_cvar c).push b := by
@@ -521,7 +534,123 @@ theorem procBody_sound : SemanticTyping
     ΓP procBody (.exi 1 (.arr (.cvar (.M .epsilon) .here) .unit)) :=
   fundamental ΓP_closed procBody_typed
 
+/-! ## Borrowed split: split without consuming, use both halves in parallel, reuse the parent -/
+abbrev SigB : Sig := ((((((({},C),x),C),x),C),x),x)
+
+/-- An array `buf` (owned in the context, but only borrowed below), two fallback
+cells `e1`, `e2` and a unit value `u`. -/
+def ΓB : Ctx SigB :=
+  (((((((Ctx.empty ,C[.can_drop]<: .unbound)
+    ,x: (.arr (.cvar (.M .epsilon) .here) .unit))
+    ,C[.can_drop]<: .unbound)
+    ,x: (.cell (.cvar (.M .epsilon) .here) .unit))
+    ,C[.can_drop]<: .unbound)
+    ,x: (.cell (.cvar (.M .epsilon) .here) .unit))
+    ,x: .unit)
+
+theorem ΓB_closed : ΓB.IsClosed := by
+  repeat constructor
+
+/-- Inside the borrowed split: write both halves in parallel. -/
+def contB : Exp ((SigB.extendCVars 2),x) :=
+  .letin (.fst (.bound .here))
+  (.letin (.snd (.bound (.there .here)))
+  (.par ((.var (.M .epsilon) (.bound (.there .here))) ∪ (.var (.M .epsilon) (.bound (.there (.there (.there (.there (.there (.there (.there (.there .here))))))))))) ((.var (.M .epsilon) (.bound .here)) ∪ (.var (.M .epsilon) (.bound (.there (.there (.there (.there (.there (.there .here)))))))))
+      (.letin (.idx (.bound (.there .here)) 0 (.bound (.there (.there (.there (.there (.there (.there (.there (.there .here)))))))))) (.write (.bound .here) (.bound (.there (.there (.there (.there (.there (.there .here)))))))))
+      (.letin (.idx (.bound .here) 0 (.bound (.there (.there (.there (.there (.there (.there .here)))))))) (.write (.bound .here) (.bound (.there (.there (.there (.there (.there (.there .here)))))))))))
+
+/-- **Borrowed split.** Split `buf` without consuming it, write both halves in parallel,
+then use `buf` again. -/
+def borrowBody : Exp SigB :=
+  .letin (.unpack 2 (.split (.bound (.there (.there (.there (.there (.there .here)))))) 1) contB)
+    (.letin (.idx (.bound (.there (.there (.there (.there (.there (.there .here))))))) 0
+        (.bound (.there (.there (.there (.there .here))))))
+      (.write (.bound .here) (.bound (.there (.there .here)))))
+
+theorem borrow_unpack_typed : HasType
+    ((.var (.M .epsilon) (.bound (.there (.there (.there (.there (.there .here))))))) ∪
+      ((.var (.M .epsilon) (.bound (.there (.there (.there .here))))) ∪
+        (.var (.M .epsilon) (.bound (.there .here)))))
+    ΓB (.unpack 2 (.split (.bound (.there (.there (.there (.there (.there .here)))))) 1) contB)
+    (.typ .unit) := by
+  refine HasType.splitb ΓB_closed (by repeat constructor) ?ao
+    (HasType.var ΓB_closed (.there (.there (.there (.there (.there .here)))))) ?cont
+  case ao =>
+    intro c h
+    peaks_at h
+    cvar_cases_ao h
+  case cont =>
+    refine HasType.letin_pure (by auto_closed) (by auto_closed)
+      (HasType.fst (HasType.var (by auto_closed) .here)) ?k1
+    refine HasType.letin_pure (by auto_closed) (by auto_closed)
+      (HasType.snd (HasType.var (by auto_closed) (.there .here))) ?k2
+    refine HasType.subtyp (HasType.par (E1 := .typ .unit) (E2 := .typ .unit) ?b1 ?b2 ?sepP)
+      ?scP .refl ?ccP ?uuP
+    case b1 =>
+      refine HasType.letin_pure ?cc ?uu
+        (HasType.idx (HasType.var ?cl1 (.there .here)) (HasType.var ?cl2 (.there (.there (.there (.there (.there (.there (.there (.there (.there .here))))))))))) ?w
+      case w =>
+        refine HasType.subtyp
+          (HasType.write ?acc (HasType.var ?cl3 .here) (HasType.var ?cl4 (.there (.there (.there (.there (.there (.there (.there .here)))))))))
+          (.sc_var .here) .refl ?cc2 ?uu2
+        case acc =>
+          intro a c h
+          peaks_at h
+          cvar_cases_acc h
+        all_goals auto_closed
+      all_goals auto_closed
+    case b2 =>
+      refine HasType.letin_pure ?cc_b ?uu_b
+        (HasType.idx (HasType.var ?cl1_b .here) (HasType.var ?cl2_b (.there (.there (.there (.there (.there (.there (.there .here))))))))) ?w_b
+      case w_b =>
+        refine HasType.subtyp
+          (HasType.write ?acc_b (HasType.var ?cl3_b .here) (HasType.var ?cl4_b (.there (.there (.there (.there (.there (.there (.there .here)))))))))
+          (.sc_var .here) .refl ?cc2_b ?uu2_b
+        case acc_b =>
+          intro a c h
+          peaks_at h
+          cvar_cases_acc h
+        all_goals auto_closed
+      all_goals auto_closed
+    case sepP =>
+      rn_norm
+      sep_tac
+    case scP =>
+      rn_norm
+      sc_tac
+    all_goals auto_closed
+
+/-- The whole program: after the borrowed split, `buf` is still usable. -/
+theorem borrow_typed : HasType (((.var (.M .epsilon) (.bound (.there (.there (.there (.there (.there .here))))))) ∪ ((.var (.M .epsilon) (.bound (.there (.there (.there .here))))) ∪ (.var (.M .epsilon) (.bound (.there .here))))) ∪ ((.var (.M .epsilon) (.bound (.there (.there (.there (.there (.there .here))))))) ∪ (.var (.M .epsilon) (.bound (.there (.there (.there .here))))))) ΓB borrowBody (.typ .unit) := by
+  refine HasType.letin (C1 := ((.var (.M .epsilon) (.bound (.there (.there (.there (.there (.there .here))))))) ∪ ((.var (.M .epsilon) (.bound (.there (.there (.there .here))))) ∪ (.var (.M .epsilon) (.bound (.there .here)))))) (C2 := ((.var (.M .epsilon) (.bound (.there (.there (.there (.there (.there .here))))))) ∪ (.var (.M .epsilon) (.bound (.there (.there (.there .here))))))) (T := .unit) ?seq borrow_unpack_typed ?rest
+  case seq =>
+    refine .seq_access_only (by repeat constructor) ?_
+    intro c h
+    peaks_at h
+    cvar_cases_ao h
+  case rest =>
+    peaks_goal
+    refine HasType.letin_pure ?cc ?uu
+      (HasType.idx (HasType.var ?cl1 (.there (.there (.there (.there (.there (.there .here))))))) (HasType.var ?cl2 (.there (.there (.there (.there .here)))))) ?w
+    case w =>
+      refine HasType.subtyp
+        (HasType.write ?acc (HasType.var ?cl3 .here) (HasType.var ?cl4 (.there (.there .here))))
+        (.sc_var .here) .refl ?cc2 ?uu2
+      case acc =>
+        intro a c h
+        peaks_at h
+        cvar_cases_acc h
+      all_goals auto_closed
+    all_goals auto_closed
+
+/-- Borrowed split is sound (fundamental theorem). -/
+theorem borrow_sound : SemanticTyping
+    (((.var (.M .epsilon) (.bound (.there (.there (.there (.there (.there .here))))))) ∪ ((.var (.M .epsilon) (.bound (.there (.there (.there .here))))) ∪ (.var (.M .epsilon) (.bound (.there .here))))) ∪ ((.var (.M .epsilon) (.bound (.there (.there (.there (.there (.there .here))))))) ∪ (.var (.M .epsilon) (.bound (.there (.there (.there .here)))))))
+    ΓB borrowBody (.typ .unit) :=
+  fundamental ΓB_closed borrow_typed
+
 #print axioms roundTrip_sound
 #print axioms procBody_sound
+#print axioms borrow_sound
 
 end CoreCapybara
