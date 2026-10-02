@@ -649,8 +649,5 @@ theorem borrow_sound : SemanticTyping
     ΓB borrowBody (.typ .unit) :=
   fundamental ΓB_closed borrow_typed
 
-#print axioms roundTrip_sound
-#print axioms procBody_sound
-#print axioms borrow_sound
 
 end CoreCapybara

@@ -544,7 +544,8 @@ inductive HasType : CaptureSet s -> Ctx s -> Exp s -> Ty .exi s -> Prop where
     (.exi 2 (Ty.splitBody C T))
   /-- Borrowed (scoped) split, Capybara's `splitAt`: `x` is not consumed.  The
   halves are bound as access-only capture variables bounded by `{x}`, and a lock
-  records that they are separate.  The result type cannot mention the halves. -/
+  records that they are separate.  The result type cannot mention the halves.  The
+  access-only premise on `x` is not needed for soundness (`sem_typ_splitb` ignores it). -/
 | splitb {C C2 : CaptureSet s} {T : Ty .capt s} {U : Ty .exi s}
     {u : Exp ((s.extendCVars 2),x)} :
   Γ.IsClosed ->
