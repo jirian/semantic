@@ -542,6 +542,29 @@ inductive HasType : CaptureSet s -> Ctx s -> Exp s -> Ty .exi s -> Prop where
   ----------------------------
   HasType ((.var (.M .epsilon) x) ∪ (.var .drop x)) Γ (.split x n)
     (.exi 2 (Ty.splitBody C T))
+  /-- Borrowed (scoped) split, Capybara's `splitAt`: `x` is not consumed.  The
+  halves are bound as access-only capture variables bounded by `{x}`, and a lock
+  records that they are separate.  The result type cannot mention the halves. -/
+| splitb {C C2 : CaptureSet s} {T : Ty .capt s} {U : Ty .exi s}
+    {u : Exp ((s.extendCVars 2),x)} :
+  Γ.IsClosed ->
+  C2.IsClosed ->
+  (CaptureSet.var (.M .epsilon) x).AccessOnly Γ ->
+  HasType {} Γ (.var x) (.typ (.arr C T)) ->
+  HasType
+    ((((C2.rename (Rename.weakenCVars 2)).rename (Rename.succ (k := .lock))).rename
+        Rename.succ) ∪
+     (((CaptureSet.freshCVars 2).rename (Rename.succ (k := .lock))).rename Rename.succ))
+    ((((Γ.push_cvar .access_only (.bound (.var (.M .epsilon) x))).push_cvar .access_only
+          (.bound ((CaptureSet.var (.M .epsilon) x).rename Rename.succ))).push_lock
+        ⟨(SepCtx.empty.cons (.cvar (.M .epsilon) (.there .here))).cons
+            (.cvar (.M .epsilon) .here),
+         MutabilityCtx.empty⟩),x:((Ty.splitBody C T).rename (Rename.succ (k := .lock))))
+    (u.rename ((Rename.succ (k := .lock)).lift))
+    (((U.rename (Rename.weakenCVars 2)).rename (Rename.succ (k := .lock))).rename
+      Rename.succ) ->
+  ----------------------------
+  HasType ((.var (.M .epsilon) x) ∪ C2) Γ (.unpack 2 (.split x n) u) U
 | pair {T1 T2 : Ty .capt s} :
   HasType {} Γ (.var x) (.typ T1) ->
   HasType {} Γ (.var y) (.typ T2) ->

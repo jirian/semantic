@@ -7458,6 +7458,38 @@ theorem sem_typ_split {x : BVar s .var} {n : Nat} {C : CaptureSet s} {T : Ty .ca
     rw [Exp.splitExp_open3]
     exact PrefixSafe.ans (Exp.IsAns.is_val Exp.IsVal.pack)
 
+theorem Ty.splitBody_closed {C : CaptureSet s} {T : Ty .capt s} (hT : T.IsClosed) :
+    (Ty.splitBody C T).IsClosed := by
+  have hT' := Ty.rename_closed (f := Rename.weakenCVars 2) hT
+  exact Ty.IsClosed.pair
+    (CaptureSet.IsClosed.union CaptureSet.IsClosed.cvar CaptureSet.IsClosed.cvar)
+    (Ty.IsClosed.arr CaptureSet.IsClosed.cvar hT')
+    (Ty.IsClosed.arr CaptureSet.IsClosed.cvar hT')
+
+/-- **Borrowed split** (Capybara's `splitAt`): `unpack 2 (split x n) u` under the
+borrowed rule.  `x` is not consumed; the halves are bound as access-only capture
+variables bounded by `{x}`, with a lock recording their separation. -/
+theorem sem_typ_splitb {x : BVar s .var} {n : Nat} {C C2 : CaptureSet s} {T : Ty .capt s}
+  {U : Ty .exi s} {u : Exp ((s.extendCVars 2),x)}
+  (hΓ : Γ.IsClosed)
+  (hclosed_C2 : C2.IsClosed)
+  (hx : SemanticTyping {} Γ (Exp.var (.bound x)) (.typ (.arr C T)))
+  (hu : SemanticTyping
+    ((((C2.rename (Rename.weakenCVars 2)).rename (Rename.succ (k := .lock))).rename
+        Rename.succ) ∪
+     (((CaptureSet.freshCVars 2).rename (Rename.succ (k := .lock))).rename Rename.succ))
+    ((((Γ.push_cvar .access_only (.bound (.var (.M .epsilon) (.bound x)))).push_cvar
+          .access_only (.bound ((CaptureSet.var (.M .epsilon) (.bound x)).rename Rename.succ))).push_lock
+        ⟨(SepCtx.empty.cons (.cvar (.M .epsilon) (.there .here))).cons
+            (.cvar (.M .epsilon) .here),
+         MutabilityCtx.empty⟩),x:((Ty.splitBody C T).rename (Rename.succ (k := .lock))))
+    (u.rename ((Rename.succ (k := .lock)).lift))
+    (((U.rename (Rename.weakenCVars 2)).rename (Rename.succ (k := .lock))).rename
+      Rename.succ)) :
+  SemanticTyping ((.var (.M .epsilon) (.bound x)) ∪ C2) Γ
+    (Exp.unpack 2 (Exp.split (.bound x) n) u) U := by
+  sorry
+
 theorem fundamental
   (hΓ : Γ.IsClosed)
   (ht : HasType C Γ e T) :
@@ -7651,6 +7683,33 @@ theorem fundamental
     | split hx_closed =>
       cases hx_closed
       exact sem_typ_split hΓ_closed (hx_ih hΓ (Exp.IsClosed.var Var.IsClosed.bound))
+  case splitb =>
+    rename_i hΓ_closed hC2 _hao hx_syn hu_syn hx_ih hu_ih
+    cases hclosed_e with
+    | unpack ht_closed _ =>
+      cases ht_closed with
+      | split hx_closed =>
+        cases hx_closed
+        apply sem_typ_splitb hΓ_closed hC2 (hx_ih hΓ (Exp.IsClosed.var Var.IsClosed.bound))
+        apply hu_ih ?_ (HasType.exp_is_closed hu_syn)
+        cases HasType.type_is_closed hx_syn with
+        | typ hT =>
+          cases hT with
+          | arr _ hT0 =>
+            exact Ctx.IsClosed.push
+              (Ctx.IsClosed.push
+                (Ctx.IsClosed.push
+                  (Ctx.IsClosed.push hΓ
+                    (Binding.IsClosed.cvar (CaptureBound.IsClosed.bound
+                      CaptureSet.IsClosed.var_bound)))
+                  (Binding.IsClosed.cvar (CaptureBound.IsClosed.bound
+                    CaptureSet.IsClosed.var_bound)))
+                (Binding.IsClosed.lock
+                  ⟨SepCtx.IsClosed.cons
+                    (SepCtx.IsClosed.cons SepCtx.IsClosed.empty CaptureSet.IsClosed.cvar)
+                    CaptureSet.IsClosed.cvar,
+                   MutabilityCtx.IsClosed.empty⟩))
+              (Binding.IsClosed.var (Ty.rename_closed (Ty.splitBody_closed hT0)))
   case arr =>
     rename_i xs T Cs _hΓ' hT hcells hsep
     exact sem_typ_arr hT hcells (hsep.imp (fun h => fundamental_sepcheck h))

@@ -2728,6 +2728,84 @@ theorem Ty.splitBody_eraseCVars {C : CaptureSet s} {T : Ty .capt s} {K : Capture
     Ty.eraseCVars_rename Rename.weakenCVars_cvarInjective, h0, h1]
   rfl
 
+private theorem CaptureSet.rename_weakenCVars_two {K : CaptureSet s} :
+    K.rename (Rename.weakenCVars 2)
+      = (K.rename (Rename.succ (k := .cvar))).rename (Rename.succ (k := .cvar)) := by
+  rw [CaptureSet.rename_comp]
+  rfl
+
+/-- The lock of a borrowed split survives erasure: it mentions only the two new
+capture variables. -/
+private theorem ModalCtx.eraseCVars_splitb_lock {s : Sig} {K : CaptureSet s} :
+    (⟨(SepCtx.empty.cons (.cvar (.M .epsilon) (.there .here))).cons
+          (.cvar (.M .epsilon) .here),
+        MutabilityCtx.empty⟩ : ModalCtx (s.extendCVars 2)).eraseCVars
+        (K.rename (Rename.weakenCVars 2))
+      =
+    ⟨(SepCtx.empty.cons (.cvar (.M .epsilon) (.there .here))).cons
+        (.cvar (.M .epsilon) .here),
+      MutabilityCtx.empty⟩ := by
+  obtain ⟨h0, h1⟩ := CaptureSet.mentionsCVar_rename_weaken2 (K := K)
+  simp only [ModalCtx.eraseCVars, SepCtx.eraseCVars, MutabilityCtx.eraseCVars]
+  erw [CaptureSet.eraseCVars_cvar_neg h0, CaptureSet.eraseCVars_cvar_neg h1]
+  rfl
+
+private theorem Ctx.erase_kill_splitb_body {s : Sig} {Γ : Ctx s} {K : CaptureSet s}
+    {x : Var .var s} {T : Ty .capt (s.extendCVars 2)} :
+    Ctx.kill_peaks_cs
+      (Ctx.eraseCVars
+        (Ctx.push_var
+          (Ctx.push_lock
+            ((Γ.push_cvar .access_only (.bound (.var (.M .epsilon) x))).push_cvar .access_only
+              (.bound ((CaptureSet.var (.M .epsilon) x).rename Rename.succ)))
+            ⟨(SepCtx.empty.cons (.cvar (.M .epsilon) (.there .here))).cons
+                (.cvar (.M .epsilon) .here),
+              MutabilityCtx.empty⟩)
+          (T.rename (Rename.succ (k := .lock))))
+        (((K.rename (Rename.weakenCVars 2)).rename (Rename.succ (k := .lock))).rename
+          (Rename.succ (k := .var))))
+      (((K.rename (Rename.weakenCVars 2)).rename (Rename.succ (k := .lock))).rename
+        (Rename.succ (k := .var)))
+      =
+    Ctx.push_var
+      (Ctx.push_lock
+        ((((Γ.eraseCVars K).kill_peaks_cs K).push_cvar .access_only
+            (.bound (.var (.M .epsilon) x))).push_cvar .access_only
+          (.bound ((CaptureSet.var (.M .epsilon) x).rename Rename.succ)))
+        ⟨(SepCtx.empty.cons (.cvar (.M .epsilon) (.there .here))).cons
+            (.cvar (.M .epsilon) .here),
+          MutabilityCtx.empty⟩)
+      ((T.eraseCVars (K.rename (Rename.weakenCVars 2))).rename
+        (Rename.succ (k := .lock))) := by
+  erw [Ctx.eraseCVars_push_var, Ctx.kill_peaks_cs_push_var, Ctx.eraseCVars_push_lock,
+    Ctx.kill_peaks_cs_push_lock, Ty.eraseCVars_rename Rename.succ_cvarInjective,
+    ModalCtx.eraseCVars_splitb_lock]
+  congr 2
+  erw [CaptureSet.rename_weakenCVars_two, Ctx.eraseCVars_push_cvar, Ctx.kill_peaks_cs_push_cvar,
+    Ctx.eraseCVars_push_cvar, Ctx.kill_peaks_cs_push_cvar]
+  simp only [CaptureBound.eraseCVars, CaptureSet.rename, CaptureSet.eraseCVars_var]
+
+private theorem CaptureSet.eraseCVars_splitb_uses {s : Sig} {C2 K : CaptureSet s} :
+    ((((C2.rename (Rename.weakenCVars 2)).rename (Rename.succ (k := .lock))).rename
+          (Rename.succ (k := .var))) ∪
+        (((CaptureSet.freshCVars 2).rename (Rename.succ (k := .lock))).rename
+          (Rename.succ (k := .var)))).eraseCVars
+        (((K.rename (Rename.weakenCVars 2)).rename (Rename.succ (k := .lock))).rename
+          (Rename.succ (k := .var)))
+      =
+    ((((C2.eraseCVars K).rename (Rename.weakenCVars 2)).rename
+          (Rename.succ (k := .lock))).rename (Rename.succ (k := .var))) ∪
+      (((CaptureSet.freshCVars 2).rename (Rename.succ (k := .lock))).rename
+        (Rename.succ (k := .var))) := by
+  erw [CaptureSet.eraseCVars_union]
+  rw [CaptureSet.eraseCVars_rename Rename.succ_cvarInjective,
+    CaptureSet.eraseCVars_rename Rename.succ_cvarInjective,
+    CaptureSet.eraseCVars_rename Rename.weakenCVars_cvarInjective,
+    CaptureSet.eraseCVars_rename Rename.succ_cvarInjective,
+    CaptureSet.eraseCVars_rename Rename.succ_cvarInjective,
+    CaptureSet.freshCVars_eraseCVars]
+  rfl
+
 theorem HasType.erase_kill {s : Sig} {C : CaptureSet s} {Γ : Ctx s} {e : Exp s} {E : Ty .exi s}
     (h : HasType C Γ e E) (K : CaptureSet s) :
     HasType (C.eraseCVars K) ((Γ.eraseCVars K).kill_peaks_cs K)
@@ -3099,6 +3177,33 @@ theorem HasType.erase_kill {s : Sig} {C : CaptureSet s} {Γ : Ctx s} {e : Exp s}
     rw [Ty.splitBody_eraseCVars]
     exact .split (Ctx.kill_peaks_cs_isClosed (hΓ.eraseCVars K))
       (by simpa only [CaptureSet.eraseCVars_var] using hdrop.eraseCVars (K := K)) hx'
+  | splitb hΓ hC2 hao hx hu ihx ihu =>
+    have hx' := ihx K
+    simp only [CaptureSet.eraseCVars, Exp.eraseCVars, Ty.eraseCVars] at hx'
+    have hbody := ihu
+      (((K.rename (Rename.weakenCVars 2)).rename (Rename.succ (k := .lock))).rename
+        (Rename.succ (k := .var)))
+    rw [CaptureSet.eraseCVars_splitb_uses] at hbody
+    erw [Ctx.erase_kill_splitb_body] at hbody
+    rw [Ty.splitBody_eraseCVars] at hbody
+    simp only [Exp.eraseCVars, CaptureSet.eraseCVars_union]
+    refine .splitb (Ctx.kill_peaks_cs_isClosed (hΓ.eraseCVars K)) (hC2.eraseCVars K)
+      (by simpa only [CaptureSet.eraseCVars_var] using hao.eraseCVars (K := K)) hx' ?_
+    convert hbody using 1
+    · have hKbody :
+          (((K.rename (Rename.weakenCVars 2)).rename
+                (Rename.succ (k := .lock))).rename (Rename.succ (k := .var)))
+            =
+          ((K.rename (Rename.weakenCVars 2)).rename
+              (Rename.succ (k := .var))).rename
+            ((Rename.succ (k := .lock)).lift (k := .var)) :=
+        CaptureSet.rename_succ_lift
+      rw [hKbody]
+      exact (Exp.eraseCVars_rename
+        (Rename.CVarInjective.lift Rename.succ_cvarInjective)).symm
+    · rw [Ty.eraseCVars_rename Rename.succ_cvarInjective,
+        Ty.eraseCVars_rename Rename.succ_cvarInjective,
+        Ty.eraseCVars_rename Rename.weakenCVars_cvarInjective]
   | pair hx hy ihx ihy =>
     have hx' := ihx K
     have hy' := ihy K

@@ -391,6 +391,8 @@ theorem HasType.use_set_is_closed
   | split _ _ ht_x _ =>
     exact CaptureSet.IsClosed.union (HasType.typed_var_capture_closed ht_x)
       (HasType.typed_var_capture_closed ht_x)
+  | splitb _ hC2 _ ht_x _ _ _ =>
+    exact CaptureSet.IsClosed.union (HasType.typed_var_capture_closed ht_x) hC2
   | pair => exact CaptureSet.IsClosed.empty
   | fst => exact CaptureSet.IsClosed.empty
   | snd => exact CaptureSet.IsClosed.empty
@@ -519,6 +521,10 @@ theorem HasType.exp_is_closed
   case split ih_x =>
     cases ih_x
     exact Exp.IsClosed.split (by assumption)
+  case splitb ih_x ih_u =>
+    cases ih_x
+    exact Exp.IsClosed.unpack (Exp.IsClosed.split (by assumption))
+      (Exp.rename_closed_inv ih_u)
   case pair ih_x ih_y =>
     cases ih_x; cases ih_y
     exact Exp.IsClosed.pair (by assumption) (by assumption)
@@ -651,6 +657,8 @@ theorem HasType.type_is_closed
   case unpack ih1 ih2 =>
     -- Result type carries three rename layers (weakenCVars, `.lock`-succ, succ).
     exact Ty.rename_closed_inv (Ty.rename_closed_inv (Ty.rename_closed_inv ih2))
+  case splitb ih_u =>
+    exact Ty.rename_closed_inv (Ty.rename_closed_inv (Ty.rename_closed_inv ih_u))
   case alloc ih =>
     cases ih with | typ hT =>
     exact Ty.IsClosed.exi (Ty.IsClosed.cell CaptureSet.IsClosed.cvar (Ty.rename_closed hT))
