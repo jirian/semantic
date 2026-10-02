@@ -22,6 +22,8 @@ import Semantic.CoreCapybara.Semantics.Confluence
 
 import Semantic.CoreCapybara.SafetyReduce
 
+import Semantic.CoreCapybara.Examples
+
 /-!
 # Semantic Type Soundness for CoreCapybara
 

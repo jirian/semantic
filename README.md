@@ -119,3 +119,4 @@ results above) for the extended calculus. The development remains sorry-free.
 | Interpretation of arrays (distinct, store-typed cells) and pairs | `Ty.val_denot` cases `.arr`, `.pair` | [Denotation/Core.lean](Semantic/CoreCapybara/Denotation/Core.lean) |
 | Soundness of owned split | `sem_typ_split` | [Fundamental.lean](Semantic/CoreCapybara/Fundamental.lean) |
 | Soundness of join / index / literals / pairs | `sem_typ_concat`, `sem_typ_idx`, `sem_typ_arr`, `sem_typ_pair`, `sem_typ_fst`, `sem_typ_snd` | [Fundamental.lean](Semantic/CoreCapybara/Fundamental.lean) |
+| Worked examples: split/join/re-split round trip; `process` (split, write both halves in `par`, consume one half, return the other as fresh) | `roundTrip_typed`/`roundTrip_sound`, `procBody_typed`/`procBody_sound` | [Examples.lean](Semantic/CoreCapybara/Examples.lean) |
