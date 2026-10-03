@@ -1,1 +1,4 @@
 /.lake
+scala-demo/target/
+scala-demo/project/target/
+scala-demo/project/project/
