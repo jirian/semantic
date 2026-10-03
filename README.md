@@ -117,6 +117,7 @@ results above) for the extended calculus. The development remains sorry-free.
 | Typing rules (split typed like `pack`) | `HasType.arr`, `.idx`, `.concat`, `.split`, `.pair`, `.fst`, `.snd`; `Ty.splitBody` | [TypeSystem/Core.lean](Semantic/CoreCapybara/TypeSystem/Core.lean) |
 | Split reduces to a let-chain ending in `pack` | `Exp.splitExp`, `Step.step_split`, `BigStep.bs_split` | [Semantics/SmallStep.lean](Semantic/CoreCapybara/Semantics/SmallStep.lean), [Semantics/BigStep.lean](Semantic/CoreCapybara/Semantics/BigStep.lean) |
 | Interpretation of arrays (distinct, store-typed cells) and pairs | `Ty.val_denot` cases `.arr`, `.pair` | [Denotation/Core.lean](Semantic/CoreCapybara/Denotation/Core.lean) |
+| Partition lemma (any number of disjoint parts: own cells at ε, drop-free, pairwise disjoint, covered by the parent) | `footprint_partition` | [Fundamental.lean](Semantic/CoreCapybara/Fundamental.lean) |
 | Soundness of owned split | `sem_typ_split` | [Fundamental.lean](Semantic/CoreCapybara/Fundamental.lean) |
 | Subtyping: arrays capture-covariant, pairs covariant | `Subtyp.arr`, `Subtyp.pair`; `sem_subtyp_arr`, `sem_subtyp_pair` | [TypeSystem/Core.lean](Semantic/CoreCapybara/TypeSystem/Core.lean), [Fundamental.lean](Semantic/CoreCapybara/Fundamental.lean) |
 | Soundness of join / index / literals / pairs | `sem_typ_concat`, `sem_typ_idx`, `sem_typ_arr`, `sem_typ_pair`, `sem_typ_fst`, `sem_typ_snd` | [Fundamental.lean](Semantic/CoreCapybara/Fundamental.lean) |

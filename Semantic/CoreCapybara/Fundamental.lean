@@ -7320,6 +7320,50 @@ theorem CapabilitySet.covers_to_drop_mode {A : CapabilitySet} {mu : CapMode} {l 
     | left h => exact ih1 h
     | right h => exact ih2 h
 
+/-- **Partition lemma** (the semantic core of splitting).  Cut the cells `ls` of an array
+into any number of pairwise disjoint parts.  Then each part's footprint reaches only its own
+cells, at `ε`; carries no drop right; is disjoint from every other part's footprint; and is
+covered (at `ε`) by the parent's footprint.  These are exactly the facts that let the parts
+be packed as fresh, separate witnesses (owned split) or bound below the parent (borrowed
+split). -/
+theorem footprint_partition {H : Heap} {ls : List Nat} {parts : List (List Nat)}
+    (hcap : ∀ l ∈ ls, ∃ c, H l = some (.capability c))
+    (hsub : ∀ p ∈ parts, ∀ l ∈ p, l ∈ ls)
+    (hdisj : parts.Pairwise List.Disjoint) :
+    (∀ p ∈ parts, ∀ mu l,
+        (expand_captures H (CaptureSet.ofVars (p.map Var.free))).hasmem mu l →
+        l ∈ p ∧ mu = .access .epsilon) ∧
+    (∀ p ∈ parts, (expand_captures H (CaptureSet.ofVars (p.map Var.free))).drop_free) ∧
+    (parts.Pairwise fun p q => CapabilitySet.disjoint
+        (expand_captures H (CaptureSet.ofVars (p.map Var.free)))
+        (expand_captures H (CaptureSet.ofVars (q.map Var.free)))) ∧
+    (∀ p ∈ parts, ∀ mu l,
+        (expand_captures H (CaptureSet.ofVars (p.map Var.free))).hasmem mu l →
+        (expand_captures H (CaptureSet.ofVars (ls.map Var.free))).covers mu l) := by
+  have hcapp : ∀ p ∈ parts, ∀ l ∈ p, ∃ c, H l = some (.capability c) :=
+    fun p hp l hl => hcap l (hsub p hp l hl)
+  have hW1 : ∀ p ∈ parts, ∀ mu l,
+      (expand_captures H (CaptureSet.ofVars (p.map Var.free))).hasmem mu l →
+      l ∈ p ∧ mu = .access .epsilon :=
+    fun p hp mu l h => expand_captures_ofVars_hasmem (hcapp p hp) h
+  refine ⟨hW1, fun p hp l h => (by cases (hW1 p hp _ l h).2), ?_, ?_⟩
+  · refine List.Pairwise.imp_of_mem ?_ hdisj
+    intro p q hp hq hpq mu1 mu2 l h1 h2
+    exact hpq (hW1 p hp mu1 l h1).1 (hW1 q hq mu2 l h2).1
+  · intro p hp mu l h
+    obtain ⟨hl, rfl⟩ := hW1 p hp mu l h
+    exact expand_captures_ofVars_covers (hsub p hp l hl) (hcap l (hsub p hp l hl))
+
+/-- The two halves of a cut at `n` form a partition of a duplicate-free list. -/
+theorem List.take_drop_partition {ls : List Nat} (hnd : ls.Nodup) (n : Nat) :
+    [ls.take n, ls.drop n].Pairwise List.Disjoint := by
+  refine List.Pairwise.cons ?_ (List.Pairwise.cons (fun _ h => nomatch h) List.Pairwise.nil)
+  intro q hq
+  simp only [List.mem_cons, List.not_mem_nil, or_false] at hq
+  subst hq
+  intro a h1 h2
+  exact List.nodup_take_drop_disjoint hnd n h1 h2
+
 /-- Strengthened evaluation of `split`: besides the semantic-typing postcondition,
 the run emits no events, every witness reaches only cells of the array `x` (at `ε`),
 and the run is prefix-safe for any budget. -/
@@ -7482,6 +7526,15 @@ theorem sem_split_strong {x : BVar s .var} {n : Nat} {C : CaptureSet s} {T : Ty 
           exact (himpl j w' m' e').trans (hrb j.val w' m' e')
     have hpres3 : ∀ l ∈ ls, m3.heap l ≠ none := fun l hl => by
       obtain ⟨c, hc⟩ := hcap3 l hl; rw [hc]; exact Option.some_ne_none _
+    -- the two halves partition the array's cells (`footprint_partition`)
+    obtain ⟨_, hPdf, hPdisj, _⟩ := footprint_partition (H := m3.heap)
+      (parts := [ls.take n, ls.drop n]) hcap3
+      (by
+        intro p hp l hl
+        simp only [List.mem_cons, List.not_mem_nil, or_false] at hp
+        rcases hp with rfl | rfl
+        exacts [htake l hl, hdrop l hl])
+      (List.take_drop_partition hnd n)
     -- every witness location is a cell of `ls`, reached at `ε`
     have hmemext : ∀ mu l,
         (CaptureSet.unionAll (⟨[CaptureSet.ofVars ((ls.take n).map Var.free),
@@ -7514,18 +7567,16 @@ theorem sem_split_strong {x : BVar s .var} {n : Nat} {C : CaptureSet s} {T : Ty 
         obtain rfl | hmem := List.mem_cons.mp hmem
         · exact CaptureSet.ofVars_free_wf (fun l hl => hpres3 l (hdrop l hl))
         cases hmem
-      · intro cs hmem l hl
+      · intro cs hmem
         obtain rfl | hmem := List.mem_cons.mp hmem
-        · cases (hwit _ htake _ _ hl).2
+        · rw [← expand_captures_eq_ground_denot]; exact hPdf _ (by simp)
         obtain rfl | hmem := List.mem_cons.mp hmem
-        · cases (hwit _ hdrop _ _ hl).2
+        · rw [← expand_captures_eq_ground_denot]; exact hPdf _ (by simp)
         cases hmem
-      · refine List.Pairwise.cons ?_ (List.Pairwise.cons (fun _ h => nomatch h) List.Pairwise.nil)
-        intro b hb
-        simp only [List.mem_cons, List.not_mem_nil, or_false] at hb
-        subst hb
-        intro mu1 mu2 l h1 h2
-        exact List.nodup_take_drop_disjoint hnd n (hwit _ htake _ _ h1).1 (hwit _ hdrop _ _ h2).1
+      · simp only [expand_captures_eq_ground_denot] at hPdisj
+        exact (List.pairwise_map (f := fun p : List Nat => CaptureSet.ofVars (p.map Var.free))
+          (R := fun c1 c2 => CapabilitySet.disjoint (c1.ground_denot m3) (c2.ground_denot m3))).mpr
+          hPdisj
       · have hres1 : resolve m3.heap (.var (.free l1)) = some (.arr ((ls.take n).map Var.free)) := by
           simp only [resolve]; rw [show m3.heap l1 = m3.lookup l1 from rfl, hlk1]
         have hres2 : resolve m3.heap (.var (.free l2)) = some (.arr ((ls.drop n).map Var.free)) := by
