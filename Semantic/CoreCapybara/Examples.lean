@@ -697,7 +697,8 @@ theorem HasType.arr_ctx {Γ : Ctx s} {xs : List (BVar s .var)} {T : Ty .capt s}
   HasType.arr (Cs := fun x => cellCap (Γ.lookup_var x)) hΓ hT hl hp
 
 /-- A closed program: allocate two cells, build an array from them, split it, pair the
-halves, and join them again. -/
+halves, join them again, and return the joined array as a *fresh* owned array (re-fusion:
+packing the join consumes both halves). -/
 def closedProg : Exp {} :=
   .letin .unit
   (.unpack 1 (.alloc (.bound .here))
@@ -707,9 +708,10 @@ def closedProg : Exp {} :=
     (.letin (.fst (.bound .here))
     (.letin (.snd (.bound (.there .here)))
     (.letin (.pair (.bound (.there .here)) (.bound .here))
-    (.letin (.concat (.bound (.there (.there .here))) (.bound (.there .here))) .unit))))))))
+    (.letin (.concat (.bound (.there (.there .here))) (.bound (.there .here)))
+      (.pack ⟨[.var (.M .epsilon) (.bound .here)], rfl⟩ (.bound .here))))))))))
 
-theorem closedProg_typed : HasType {} Ctx.empty closedProg (.typ .unit) := by
+theorem closedProg_typed : HasType {} Ctx.empty closedProg (.exi 1 (.arr (.cvar (.M .epsilon) .here) .unit)) := by
   refine HasType.letin_pure (by auto_closed) (by auto_closed) HasType.unit ?k0
   refine HasType.unpack_pure (by auto_closed) (by auto_closed)
     (HasType.alloc (HasType.var (by auto_closed) .here)) ?k1
@@ -765,12 +767,30 @@ theorem closedProg_typed : HasType {} Ctx.empty closedProg (.typ .unit) := by
     case sepC =>
       rn_norm
       sep_tac
-    exact HasType.subtyp HasType.unit (.sc_elem .empty) .refl (by auto_closed) (by auto_closed)
+    -- re-fusion: pack the joined array as fresh, consuming both halves
+    refine HasType.subtyp
+      (HasType.pack ?clP ?aoP ?drP ?pwP (HasType.var ?clV .here)) ?scP .refl ?ccP ?uuP
+    case aoP =>
+      intro c h
+      simp only [CaptureSet.unionAll, List.Vector.map, List.map] at h
+      peaks_at h
+      cvar_cases_ao h
+    case drP =>
+      intro a c h
+      simp only [CaptureSet.unionAll, List.Vector.map, List.map] at h
+      peaks_at h
+      cvar_cases h
+    case pwP => exact List.pairwise_singleton _ _
+    case scP =>
+      rn_norm
+      sc_tac
+    all_goals auto_closed
   all_goals auto_closed
 
 /-- **End to end.** The closed program is semantically well typed in the empty context, the
 platform context with no cells. -/
-theorem closedProg_sound : SemanticTyping {} Ctx.empty closedProg (.typ .unit) :=
+theorem closedProg_sound : SemanticTyping {} Ctx.empty closedProg
+    (.exi 1 (.arr (.cvar (.M .epsilon) .here) .unit)) :=
   fundamental Ctx.IsClosed.empty closedProg_typed
 
 /-- Hence, by Capybara's adequacy theorem, it never gets stuck. -/
