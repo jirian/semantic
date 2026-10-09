@@ -1503,7 +1503,7 @@ theorem compute_reachability_frame {h1 h2 : Heap} {c : Nat} {ci1 ci2}
   | abs | tabs | cabs | consumer | boxed | arr | pair =>
     exact expand_captures_frame _ hr
   | reader => rename_i x; cases x with | free loc => rfl | bound bx => cases bx
-  | unit | btrue | bfalse => rfl
+  | unit | btrue | bfalse | nat => rfl
 
 /-- **Exact memory frame.**  If `e` runs from `ma`, and `mb` agrees with `ma` on
   every cell except `c` (a capability cell of `ma` that `e` never touches), then
@@ -1804,7 +1804,7 @@ theorem compute_reachability_frame_wf {h1 h2 : Heap} {c : Nat}
     | wf_pair hx hy =>
       exact expand_captures_frame_wf _ (CaptureSet.ofVars_wf (Var.wf_pair_list hx hy)) hc2 hag
   | reader => rename_i x; cases x with | free loc => rfl | bound bx => cases bx
-  | unit | btrue | bfalse => rfl
+  | unit | btrue | bfalse | nat => rfl
 
 /-- Exact memory frame, absent variant: `c` is PRESENT in `ma` but ABSENT in `mb`.
   Since `e` is well-formed in `mb`, it cannot reference `c` (a `none` location), so

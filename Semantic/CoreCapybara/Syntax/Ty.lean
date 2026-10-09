@@ -67,6 +67,8 @@ inductive Ty : TySort -> Sig -> Type where
 | unit : Ty .capt s
 /-- The boolean type. -/
 | bool : Ty .capt s
+/-- The natural-number type. -/
+| nat : Ty .capt s
 /-- An array of mutable cells holding `T`, tracked by capture set `cs`. -/
 | arr : CaptureSet s -> Ty .capt s -> Ty .capt s
 /-- A pair `(T1 × T2)^cs`. -/
@@ -89,6 +91,7 @@ def Ty.rename : Ty sort s1 -> Rename s1 s2 -> Ty sort s2
 | .unit, _ => .unit
 | .cap cs, f => .cap (cs.rename f)
 | .bool, _ => .bool
+| .nat, _ => .nat
 | .cell cs T, f => .cell (cs.rename f) (T.rename f)
 | .reader cs T, f => .reader (cs.rename f) (T.rename f)
 | .arr cs T, f => .arr (cs.rename f) (T.rename f)
@@ -131,6 +134,7 @@ def Ty.rename_id {T : Ty sort s} : T.rename (Rename.id) = T := by
     simp only [Ty.rename, CaptureSet.rename_id, ih1, ih2]
   | unit => rfl
   | bool => rfl
+  | nat => rfl
   | exi n T ih =>
     simp only [Ty.rename, Rename.liftCVars_id]
     exact congrArg (Ty.exi n) ih
@@ -181,6 +185,7 @@ theorem Ty.rename_comp {T : Ty sort s1} {f : Rename s1 s2} {g : Rename s2 s3} :
     simp only [Ty.rename, CaptureSet.rename_comp, ih1, ih2]
   | unit => rfl
   | bool => rfl
+  | nat => rfl
   | exi n T ih =>
     simpa only [Ty.rename, Rename.liftCVars_comp] using
       congrArg (Ty.exi n) (ih (f := f.liftCVars n) (g := g.liftCVars n))
@@ -206,6 +211,7 @@ def Ty.captureSet : Ty .capt s -> CaptureSet s
 | .reader cs _ => cs
 | .unit => .empty
 | .bool => .empty
+| .nat => .empty
 | .arr cs _ => cs
 | .pair cs _ _ => cs
 
@@ -222,6 +228,7 @@ def Ty.refineCaptureSet : Ty .capt s -> CaptureSet s -> Ty .capt s
 | .reader _ T, cs => .reader cs T
 | .unit, _ => .unit
 | .bool, _ => .bool
+| .nat, _ => .nat
 | .arr _ T, cs => .arr cs T
 | .pair _ T1 T2, cs => .pair cs T1 T2
 
@@ -250,6 +257,7 @@ inductive Ty.IsClosed : Ty sort s -> Prop where
 | unit : Ty.IsClosed .unit
 | cap : CaptureSet.IsClosed cs -> Ty.IsClosed (.cap cs)
 | bool : Ty.IsClosed .bool
+| nat : Ty.IsClosed .nat
 | cell : CaptureSet.IsClosed cs -> Ty.IsClosed T -> Ty.IsClosed (.cell cs T)
 | reader : CaptureSet.IsClosed cs -> Ty.IsClosed T -> Ty.IsClosed (.reader cs T)
 | arr : CaptureSet.IsClosed cs -> Ty.IsClosed T -> Ty.IsClosed (.arr cs T)

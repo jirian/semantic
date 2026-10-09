@@ -335,7 +335,7 @@ def rebind_val_denot
   (ρ : Rebind env1 f env2) (T : Ty .capt s1) :
   IDenot.Equiv (Ty.val_denot env1 T) (Ty.val_denot env2 (T.rename f)) :=
   match T with
-  | .top | .unit | .bool => by
+  | .top | .unit | .bool | .nat => by
     intro k st m e
     simp [Ty.val_denot, Ty.rename]
   | .tvar X => by

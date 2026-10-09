@@ -481,6 +481,9 @@ inductive HasType : CaptureSet s -> Ctx s -> Exp s -> Ty .exi s -> Prop where
 | bfalse :
   ----------------------------
   HasType {} Γ (.bfalse) (.typ .bool)
+| nat {n : Nat} :
+  ----------------------------
+  HasType {} Γ (.nat n) (.typ .nat)
 | alloc :
   HasType {} Γ (.var x) (.typ T) ->
   ----------------------------

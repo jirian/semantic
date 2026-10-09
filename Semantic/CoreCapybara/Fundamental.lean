@@ -303,6 +303,7 @@ theorem Ty.captureSet_isClosed {T : Ty .capt s}
   case reader => cases h with | reader hcs => exact hcs
   case unit => exact CaptureSet.IsClosed.empty
   case bool => exact CaptureSet.IsClosed.empty
+  case nat => exact CaptureSet.IsClosed.empty
 
 /-- `applyMut` on a `CaptureSet {}` commutes with `ground_denot`. -/
 private theorem captureSet_ground_denot_applyMut_comm
@@ -2752,6 +2753,21 @@ theorem sem_typ_bfalse :
     witness_live_of_ne_pack (fun _ _ _ h => nomatch h)⟩
     simp only [Ty.exi_val_denot, Ty.val_denot, resolve]
     right; trivial
+
+theorem sem_typ_nat {n : Nat} :
+  SemanticTyping {} Γ (Exp.nat n) (.typ .nat) := by
+  intro env k st store hts _ _
+  simp only [Ty.exi_exp_denot, Exp.subst, List.empty_eq]
+  intro hmt
+  refine ⟨?_, PrefixSafe.ans (Exp.IsAns.is_val Exp.IsVal.nat)⟩
+  apply Eval.eval_val
+  · exact Exp.IsSimpleVal.nat
+  · intro _hguard
+    refine ⟨TraceOk.nil, st, WorldLe.refl_trunc_self _ st store, hmt, ?_,
+      pack_bound_of_ne_pack (fun _ _ _ h => nomatch h),
+    witness_live_of_ne_pack (fun _ _ _ h => nomatch h)⟩
+    simp only [Ty.exi_val_denot, Ty.val_denot, resolve]
+    exact ⟨n, rfl⟩
 
 theorem sem_typ_cond
   {C1 C2 C3 : CaptureSet s} {Γ : Ctx s}
@@ -8266,6 +8282,7 @@ theorem fundamental
   case unit => exact sem_typ_unit
   case btrue => exact sem_typ_btrue
   case bfalse => exact sem_typ_bfalse
+  case nat => exact sem_typ_nat
   case cond ht1 ht2 ht3 ih1 ih2 ih3 =>
     cases hclosed_e with
     | cond hclosed_guard hclosed_then hclosed_else =>

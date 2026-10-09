@@ -74,6 +74,7 @@ def Ty.renameLoc (π : Equiv.Perm Nat) : Ty sort s → Ty sort s
 | .unit => .unit
 | .cap cs => .cap (cs.renameLoc π)
 | .bool => .bool
+| .nat => .nat
 | .cell cs T => .cell (cs.renameLoc π) (T.renameLoc π)
 | .reader cs T => .reader (cs.renameLoc π) (T.renameLoc π)
 | .arr cs T => .arr (cs.renameLoc π) (T.renameLoc π)
@@ -126,6 +127,7 @@ def Exp.renameLoc (π : Equiv.Perm Nat) : Exp s → Exp s
 | .unit => .unit
 | .btrue => .btrue
 | .bfalse => .bfalse
+| .nat n => (.nat n)
 | .read x => .read (x.renameLoc π)
 | .write x y => .write (x.renameLoc π) (y.renameLoc π)
 | .cond x e2 e3 => .cond (x.renameLoc π) (e2.renameLoc π) (e3.renameLoc π)
@@ -213,6 +215,7 @@ theorem Ty.renameLoc_rename (π : Equiv.Perm Nat) {sort : TySort} {s1 s2 : Sig}
   | tvar x => rfl
   | unit => rfl
   | bool => rfl
+  | nat => rfl
   | arrow _ _ _ ih1 ih2 =>
     simp only [Ty.rename, Ty.renameLoc, CaptureSet.renameLoc_rename, ih1, ih2]
   | poly _ _ _ ih1 ih2 =>
@@ -275,6 +278,7 @@ theorem Exp.renameLoc_rename (π : Equiv.Perm Nat) {s1 s2 : Sig}
   | unit => rfl
   | btrue => rfl
   | bfalse => rfl
+  | nat _ => rfl
   | read x => simp only [Exp.rename, Exp.renameLoc, Var.renameLoc_rename]
   | write x y => simp only [Exp.rename, Exp.renameLoc, Var.renameLoc_rename]
   | idx x n d => simp only [Exp.rename, Exp.renameLoc, Var.renameLoc_rename]
@@ -470,6 +474,7 @@ theorem compute_reachability_renameLoc (π : Equiv.Perm Nat) (h : Heap)
   | unit => rfl
   | btrue => rfl
   | bfalse => rfl
+  | nat => rfl
   | reader =>
     rename_i x
     cases x with
@@ -590,6 +595,7 @@ theorem Ty.subst_renameLoc (π : Equiv.Perm Nat) {sort : TySort} {s1 s2 : Sig}
   | tvar x => simp only [Ty.subst, Ty.renameLoc, Subst.renameLoc, PureTy.renameLoc]
   | unit => rfl
   | bool => rfl
+  | nat => rfl
   | arrow _ _ _ ih1 ih2 =>
     simp only [Ty.subst, Ty.renameLoc, CaptureSet.subst_renameLoc, ih1, ih2,
       ← Subst.lift_renameLoc]
@@ -674,6 +680,7 @@ theorem Exp.subst_renameLoc (π : Equiv.Perm Nat) {s1 s2 : Sig}
   | unit => rfl
   | btrue => rfl
   | bfalse => rfl
+  | nat _ => rfl
   | read x => simp only [Exp.subst, Exp.renameLoc, Var.subst_renameLoc]
   | write x y => simp only [Exp.subst, Exp.renameLoc, Var.subst_renameLoc]
   | idx x n d => simp only [Exp.subst, Exp.renameLoc, Var.subst_renameLoc]
@@ -821,6 +828,7 @@ theorem Ty.WfInHeap.renameLoc {T : Ty sort s} {h : Heap} (hwf : T.WfInHeap h)
   | wf_tvar => exact .wf_tvar
   | wf_unit => exact .wf_unit
   | wf_bool => exact .wf_bool
+  | wf_nat => exact .wf_nat
   | wf_arrow _ hcs _ ih1 ih2 => exact .wf_arrow ih1 (hcs.renameLoc π) ih2
   | wf_poly _ hcs _ ih1 ih2 => exact .wf_poly ih1 (hcs.renameLoc π) ih2
   | wf_cpoly hcb hcs _ ih => exact .wf_cpoly (hcb.renameLoc π) (hcs.renameLoc π) ih
@@ -868,6 +876,7 @@ theorem Exp.WfInHeap.renameLoc {e : Exp s} {h : Heap} (hwf : e.WfInHeap h)
   | wf_unit => exact .wf_unit
   | wf_btrue => exact .wf_btrue
   | wf_bfalse => exact .wf_bfalse
+  | wf_nat => exact .wf_nat
   | wf_read hx => exact .wf_read (hx.renameLoc π)
   | wf_write hx hy => exact .wf_write (hx.renameLoc π) (hy.renameLoc π)
   | wf_arr hxs =>
@@ -1058,6 +1067,7 @@ theorem Ty.renameLoc_id {T : Ty sort s} : T.renameLoc (Equiv.refl Nat) = T := by
   | tvar x => rfl
   | unit => rfl
   | bool => rfl
+  | nat => rfl
   | arrow _ _ _ ih1 ih2 => simp only [Ty.renameLoc, CaptureSet.renameLoc_id, ih1, ih2]
   | poly _ _ _ ih1 ih2 => simp only [Ty.renameLoc, CaptureSet.renameLoc_id, ih1, ih2]
   | cpoly _ _ _ ih =>
@@ -1108,6 +1118,7 @@ theorem Exp.renameLoc_id {e : Exp s} : e.renameLoc (Equiv.refl Nat) = e := by
   | unit => rfl
   | btrue => rfl
   | bfalse => rfl
+  | nat _ => rfl
   | read x => simp only [Exp.renameLoc, Var.renameLoc_id]
   | write x y => simp only [Exp.renameLoc, Var.renameLoc_id]
   | idx x n d => simp only [Exp.renameLoc, Var.renameLoc_id]
@@ -1195,6 +1206,7 @@ theorem Ty.renameLoc_comp {T : Ty sort s} {π ρ : Equiv.Perm Nat} :
   | tvar x => rfl
   | unit => rfl
   | bool => rfl
+  | nat => rfl
   | arrow _ _ _ ih1 ih2 => simp only [Ty.renameLoc, CaptureSet.renameLoc_comp, ih1, ih2]
   | poly _ _ _ ih1 ih2 => simp only [Ty.renameLoc, CaptureSet.renameLoc_comp, ih1, ih2]
   | cpoly _ _ _ ih =>
@@ -1247,6 +1259,7 @@ theorem Exp.renameLoc_comp {e : Exp s} {π ρ : Equiv.Perm Nat} :
   | unit => rfl
   | btrue => rfl
   | bfalse => rfl
+  | nat _ => rfl
   | read x => simp only [Exp.renameLoc, Var.renameLoc_comp]
   | write x y => simp only [Exp.renameLoc, Var.renameLoc_comp]
   | idx x n d => simp only [Exp.renameLoc, Var.renameLoc_comp]

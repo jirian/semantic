@@ -714,6 +714,7 @@ def Ty.captSkelSize : Ty .capt s → Nat
 | .reader _ T => 1 + Ty.captSkelSize T
 | .unit => 1
 | .bool => 1
+| .nat => 1
 | .arr _ T => 1 + Ty.captSkelSize T
 | .pair _ T1 T2 => 1 + Ty.captSkelSize T1 + Ty.captSkelSize T2
 
@@ -760,6 +761,7 @@ theorem Ty.captSkelSize_rename {T : Ty .capt s1} {f : Rename s1 s2} :
       rw [Ty.captSkelSize_rename (T := T1), Ty.captSkelSize_rename (T := T2)]
   | unit => simp [Ty.rename, Ty.captSkelSize]
   | bool => simp [Ty.rename, Ty.captSkelSize]
+  | nat => simp [Ty.rename, Ty.captSkelSize]
 
 theorem Ty.exiSkelSize_rename {T : Ty .exi s1} {f : Rename s1 s2} :
     Ty.exiSkelSize (T.rename f) = Ty.exiSkelSize T := by
@@ -847,6 +849,7 @@ theorem Ty.captSkelSize_subst {T : Ty .capt s1} {σ : Subst s1 s2}
       simp [h1, h2]
   | unit => simp [Ty.subst, Ty.captSkelSize]
   | bool => simp [Ty.subst, Ty.captSkelSize]
+  | nat => simp [Ty.subst, Ty.captSkelSize]
 
 theorem Ty.exiSkelSize_subst {T : Ty .exi s1} {σ : Subst s1 s2}
     (hσ : σ.SkelPreserving) :
@@ -884,6 +887,8 @@ def Ty.val_denot (env : TypeEnv s) (T : Ty .capt s)
     resolve m.heap e = some .unit
   | .bool =>
     resolve m.heap e = some .btrue ∨ resolve m.heap e = some .bfalse
+  | .nat =>
+    ∃ k, resolve m.heap e = some (.nat k)
   | .cap cs =>
     e.WfInHeap m.heap ∧
     (cs.subst (Subst.from_TypeEnv env)).WfInHeap m.heap ∧
@@ -1957,6 +1962,13 @@ theorem from_TypeEnv_wf_in_heap
                 rename_i hsome
                 exact Exp.WfInHeap.wf_var (Var.WfInHeap.wf_free hsome)
               }
+            | nat =>
+              unfold Ty.val_denot at htype
+              obtain ⟨_, h⟩ := htype
+              simp only [resolve] at h
+              split at h <;> try contradiction
+              rename_i hsome
+              exact Exp.WfInHeap.wf_var (Var.WfInHeap.wf_free hsome)
             | cell cs =>
               unfold Ty.val_denot at htype
               obtain ⟨_, l, _, _, _, hl, hlookup, _⟩ := htype
@@ -2420,6 +2432,18 @@ theorem val_denot_is_transparent {env : TypeEnv s}
         unfold Ty.val_denot at ht; simpa [hres_self] using ht
       unfold Ty.val_denot
       rcases hbool with hb | hb <;> simp [resolve, hlookup, hb]
+  | nat =>
+    intro m x v hx ht
+    cases v with
+    | mk vexp hv_simple hreach =>
+      have hlookup : m.heap x = some (Cell.val ⟨vexp, hv_simple, hreach⟩) := by
+        simpa [Memory.lookup] using hx
+      have hres_self : resolve m.heap vexp = some vexp := by cases hv_simple <;> simp [resolve]
+      have hnat : ∃ k, vexp = .nat k := by
+        unfold Ty.val_denot at ht; simpa [hres_self] using ht
+      unfold Ty.val_denot
+      obtain ⟨k, hb⟩ := hnat
+      exact ⟨k, by simp [resolve, hlookup, hb]⟩
   | cell cs =>
     intro m x v hx ht
     unfold Ty.val_denot at ht ⊢
@@ -2475,6 +2499,9 @@ theorem val_denot_is_bool_independent {env : TypeEnv s}
     unfold Ty.val_denot
     simp
   | bool =>
+    unfold Ty.val_denot
+    simp [resolve]
+  | nat =>
     unfold Ty.val_denot
     simp [resolve]
   | cell cs =>
@@ -2829,6 +2856,10 @@ def val_denot_is_monotonic {env : TypeEnv s}
     intro m1 m2 e hmem ht
     unfold Ty.val_denot at ht ⊢
     exact ht.imp (resolve_monotonic hmem) (resolve_monotonic hmem)
+  | nat =>
+    intro m1 m2 e hmem ht
+    unfold Ty.val_denot at ht ⊢
+    exact ht.imp (fun _ => resolve_monotonic hmem)
   | cell cs =>
     intro m1 m2 e hmem ht
     unfold Ty.val_denot at ht ⊢
@@ -3010,6 +3041,9 @@ def val_denot_worldle_mono {env : TypeEnv s} (henv : env.IsMonotonic)
   | .bool => by
       unfold Ty.val_denot at ht ⊢
       exact ht.imp (resolve_monotonic hwle.1) (resolve_monotonic hwle.1)
+  | .nat => by
+      unfold Ty.val_denot at ht ⊢
+      exact ht.imp (fun _ => resolve_monotonic hwle.1)
   | .cap cs => by
       unfold Ty.val_denot at ht ⊢
       obtain ⟨hwf_e, hwf_cs, label, heq, hcap, hmemin⟩ := ht
@@ -3189,6 +3223,7 @@ def val_denot_down_trunc {env : TypeEnv s}
   | .tvar X => by unfold Ty.val_denot at ht ⊢; exact henv_dc X hjk ht
   | .unit => by unfold Ty.val_denot at ht ⊢; exact ht
   | .bool => by unfold Ty.val_denot at ht ⊢; exact ht
+  | .nat => by unfold Ty.val_denot at ht ⊢; exact ht
   | .cap cs => by unfold Ty.val_denot at ht ⊢; exact ht
   | .cell cs Tc => by
       unfold Ty.val_denot at ht ⊢
@@ -3455,6 +3490,7 @@ lemma simple_ans_from_resolve
   | unit => exact Exp.IsSimpleAns.is_simple_val Exp.IsSimpleVal.unit
   | btrue => exact Exp.IsSimpleAns.is_simple_val Exp.IsSimpleVal.btrue
   | bfalse => exact Exp.IsSimpleAns.is_simple_val Exp.IsSimpleVal.bfalse
+  | nat _ => exact Exp.IsSimpleAns.is_simple_val Exp.IsSimpleVal.nat
   | abs _ _ _ => exact Exp.IsSimpleAns.is_simple_val Exp.IsSimpleVal.abs
   | tabs _ _ _ => exact Exp.IsSimpleAns.is_simple_val Exp.IsSimpleVal.tabs
   | cabs _ _ _ => exact Exp.IsSimpleAns.is_simple_val Exp.IsSimpleVal.cabs
@@ -3519,6 +3555,26 @@ lemma wf_from_resolve_bfalse
         | masked => simp [resolve, hfx] at hresolve
     | bound bx => cases bx
   | bfalse => exact Exp.WfInHeap.wf_bfalse
+  | nat _ => exact Exp.WfInHeap.wf_nat
+  | _ => simp [resolve] at hresolve
+
+lemma wf_from_resolve_nat
+  {m : Memory} {e : Exp {}}
+  {k : Nat} (hresolve : resolve m.heap e = some (.nat k)) :
+  e.WfInHeap m.heap := by
+  cases e with
+  | var x =>
+    cases x with
+    | free fx =>
+      cases hfx : m.heap fx with
+      | none => simp [resolve, hfx] at hresolve
+      | some cell =>
+        cases cell with
+        | val v => exact Exp.WfInHeap.wf_var (Var.WfInHeap.wf_free hfx)
+        | capability _ => simp [resolve, hfx] at hresolve
+        | masked => simp [resolve, hfx] at hresolve
+    | bound bx => cases bx
+  | nat _ => exact Exp.WfInHeap.wf_nat
   | _ => simp [resolve] at hresolve
 
 /-- `implies_wf` for `val_denot`: `d m e → e.WfInHeap m.heap`. -/
@@ -3539,6 +3595,10 @@ theorem val_denot_implies_wf {env : TypeEnv s}
     cases hdenot with
     | inl h => exact wf_from_resolve_btrue h
     | inr h => exact wf_from_resolve_bfalse h
+  | nat =>
+    unfold Ty.val_denot at hdenot
+    obtain ⟨_, h⟩ := hdenot
+    exact wf_from_resolve_nat h
   | unit =>
     unfold Ty.val_denot at hdenot
     exact wf_from_resolve_unit hdenot
@@ -3593,6 +3653,10 @@ theorem val_denot_implies_simple_ans {env : TypeEnv s}
     cases hdenot with
     | inl h => exact simple_ans_from_resolve h Exp.IsSimpleVal.btrue
     | inr h => exact simple_ans_from_resolve h Exp.IsSimpleVal.bfalse
+  | nat =>
+    unfold Ty.val_denot at hdenot
+    obtain ⟨_, h⟩ := hdenot
+    exact simple_ans_from_resolve h Exp.IsSimpleVal.nat
   | unit =>
     unfold Ty.val_denot at hdenot
     exact simple_ans_from_resolve hdenot Exp.IsSimpleVal.unit
@@ -3836,6 +3900,24 @@ theorem val_denot_enforces_captures {T : Ty .capt s}
           simpa only [resolve_reachability] using hsubset
       | bound bx => cases bx
     | _ => simp [resolve] at ht
+  | nat =>
+    simp only [Ty.captureSet, CaptureSet.denot, CaptureSet.subst, CaptureSet.ground_denot]
+    simp only [Ty.val_denot] at ht
+    obtain ⟨k, hk⟩ := ht
+    cases e with
+    | nat _ =>
+      simp only [resolve_reachability]
+      exact CapabilitySet.Subset.refl
+    | var x =>
+      cases x with
+      | free fx =>
+        have hsubset :
+            resolve_reachability m.heap (.var (.free fx)) ⊆
+              resolve_reachability m.heap (.nat k) :=
+          resolve_reachability_subset_of_resolve_aux hk
+        simpa only [resolve_reachability] using hsubset
+      | bound bx => cases bx
+    | _ => simp [resolve] at hk
   | cap cs =>
     simp only [Ty.captureSet]
     simp only [Ty.val_denot] at ht
@@ -4055,6 +4137,9 @@ theorem val_denot_refine {env : TypeEnv s} {T : Ty .capt s} {x : Var .var s}
     simp only [Ty.refineCaptureSet, Ty.val_denot] at hdenot ⊢
     exact hdenot
   | bool =>
+    simp only [Ty.refineCaptureSet, Ty.val_denot] at hdenot ⊢
+    exact hdenot
+  | nat =>
     simp only [Ty.refineCaptureSet, Ty.val_denot] at hdenot ⊢
     exact hdenot
   | arrow T1 cs T2 =>
@@ -4454,6 +4539,14 @@ theorem pure_ty_enforce_pure {T : Ty .capt s}
         (by
           simpa [resolve_reachability] using
             (CapabilitySet.Subset.refl : ({} : CapabilitySet) ⊆ {}))
+  case nat =>
+    simp only [Ty.val_denot] at hdenot
+    obtain ⟨_, h⟩ := hdenot
+    exact CapabilitySet.Subset.trans
+      (resolve_reachability_subset_of_resolve h)
+      (by
+        simpa [resolve_reachability] using
+          (CapabilitySet.Subset.refl : ({} : CapabilitySet) ⊆ {}))
   case cap cs =>
     simp only [Ty.captureSet] at hpure
     simp only [Ty.val_denot] at hdenot

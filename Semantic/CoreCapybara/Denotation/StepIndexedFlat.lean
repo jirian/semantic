@@ -70,6 +70,7 @@ the `cell` case consults the stored relation and `val_denot Tc` only at `j < k`.
 def val_denot : Ty .capt {} → Nat → SWorld → Memory → Exp {} → Prop
   | .unit, _, _, m, e => resolve m.heap e = some .unit
   | .bool, _, _, m, e => resolve m.heap e = some .btrue ∨ resolve m.heap e = some .bfalse
+  | .nat, _, _, m, e => ∃ k, resolve m.heap e = some (.nat k)
   | .cell _ Tc, k, Ψ, m, e =>
       ∃ l n0 ℓ0 R, e = .var (.free l) ∧
         m.lookup l = some (.capability (.mcell n0 ℓ0)) ∧
@@ -256,6 +257,10 @@ theorem val_denot_mem_mono (T : Ty .capt {}) {k Ψ m m2 e} (hsub : m2.subsumes m
     rintro (h | h)
     · exact Or.inl (resolve_monotonic hsub h)
     · exact Or.inr (resolve_monotonic hsub h)
+  | nat =>
+    simp only [val_denot]
+    rintro ⟨k, h⟩
+    exact ⟨k, resolve_monotonic hsub h⟩
   | cell cs Tc =>
     simp only [val_denot]
     rintro ⟨l, n0, ℓ0, R, he, hlk, hΨl, hag⟩

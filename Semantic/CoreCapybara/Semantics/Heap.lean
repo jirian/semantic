@@ -1202,6 +1202,7 @@ theorem Exp.IsSimpleVal.to_IsVal {e : Exp s} (h : e.IsSimpleVal) : e.IsVal :=
   | .unit, .unit => .unit
   | .btrue, .btrue => .btrue
   | .bfalse, .bfalse => .bfalse
+  | .nat _, .nat => .nat
   | .arr _, .arr => .arr
   | .pair _ _, .pair => .pair
 
@@ -1468,6 +1469,8 @@ inductive Ty.WfInHeap : Ty sort s -> Heap -> Prop where
   Ty.WfInHeap (.cap cs) H
 | wf_bool :
   Ty.WfInHeap .bool H
+| wf_nat :
+  Ty.WfInHeap .nat H
 | wf_cell :
   CaptureSet.WfInHeap cs H ->
   Ty.WfInHeap T H ->
@@ -1571,6 +1574,8 @@ inductive Exp.WfInHeap : Exp s -> Heap -> Prop where
   Exp.WfInHeap .btrue H
 | wf_bfalse :
   Exp.WfInHeap .bfalse H
+| wf_nat :
+  Exp.WfInHeap (.nat n) H
 | wf_read :
   Var.WfInHeap x H ->
   Exp.WfInHeap (.read x) H
@@ -1668,6 +1673,7 @@ theorem Ty.wf_of_closed {T : Ty sort s} {H : Heap}
   | tvar => exact Ty.WfInHeap.wf_tvar
   | unit => exact Ty.WfInHeap.wf_unit
   | bool => exact Ty.WfInHeap.wf_bool
+  | nat => exact Ty.WfInHeap.wf_nat
   | arrow _ hcs _ ih1 ih2 =>
     exact Ty.WfInHeap.wf_arrow ih1 (CaptureSet.wf_of_closed hcs) ih2
   | poly _ hcs _ ih1 ih2 =>
@@ -1696,6 +1702,7 @@ theorem Exp.wf_of_closed {e : Exp s} {H : Heap}
   | unit => exact Exp.WfInHeap.wf_unit
   | btrue => exact Exp.WfInHeap.wf_btrue
   | bfalse => exact Exp.WfInHeap.wf_bfalse
+  | nat => exact Exp.WfInHeap.wf_nat
   | var hx => exact Exp.WfInHeap.wf_var (Var.wf_of_closed hx)
   | reader hx => exact Exp.WfInHeap.wf_reader (Var.wf_of_closed hx)
   | alloc hx => exact Exp.WfInHeap.wf_alloc (Var.wf_of_closed hx)
@@ -1814,6 +1821,7 @@ theorem Ty.wf_monotonic
   | wf_tvar => exact Ty.WfInHeap.wf_tvar
   | wf_unit => exact Ty.WfInHeap.wf_unit
   | wf_bool => exact Ty.WfInHeap.wf_bool
+  | wf_nat => exact Ty.WfInHeap.wf_nat
   | wf_arrow _ hwf_cs _ ih1 ih2 =>
     exact Ty.WfInHeap.wf_arrow (ih1 hsub)
       (CaptureSet.wf_monotonic hsub hwf_cs) (ih2 hsub)
@@ -1852,6 +1860,7 @@ theorem Exp.wf_monotonic
   | wf_unit => exact Exp.WfInHeap.wf_unit
   | wf_btrue => exact Exp.WfInHeap.wf_btrue
   | wf_bfalse => exact Exp.WfInHeap.wf_bfalse
+  | wf_nat => exact Exp.WfInHeap.wf_nat
   | wf_var hwf_x => exact Exp.WfInHeap.wf_var (Var.wf_monotonic hsub hwf_x)
   | wf_reader hwf_x => exact Exp.WfInHeap.wf_reader (Var.wf_monotonic hsub hwf_x)
   | wf_alloc hwf_x => exact Exp.WfInHeap.wf_alloc (Var.wf_monotonic hsub hwf_x)
@@ -2042,6 +2051,7 @@ theorem Ty.wf_dom_subsumes {h1 h2 : Heap}
   | wf_tvar => exact .wf_tvar
   | wf_unit => exact .wf_unit
   | wf_bool => exact .wf_bool
+  | wf_nat => exact .wf_nat
   | wf_arrow _ hwf_cs _ ih1 ih2 =>
     exact .wf_arrow (ih1 hsub)
                     (CaptureSet.wf_dom_subsumes hsub hwf_cs) (ih2 hsub)
@@ -2108,6 +2118,7 @@ theorem Exp.wf_dom_subsumes {h1 h2 : Heap}
   | wf_unit => exact .wf_unit
   | wf_btrue => exact .wf_btrue
   | wf_bfalse => exact .wf_bfalse
+  | wf_nat => exact .wf_nat
   | wf_read hwf_x => exact .wf_read (Var.wf_dom_subsumes hsub hwf_x)
   | wf_write hwf_x hwf_y =>
     exact .wf_write (Var.wf_dom_subsumes hsub hwf_x) (Var.wf_dom_subsumes hsub hwf_y)
@@ -2183,6 +2194,7 @@ def compute_reachability
   | .unit => {}
   | .btrue => {}
   | .bfalse => {}
+  | .nat _ => {}
   | .arr xs => expand_captures h (CaptureSet.ofVars xs)
   | .pair x y => expand_captures h (CaptureSet.ofVars [x, y])
 
@@ -2366,6 +2378,7 @@ theorem resolve_reachability_monotonic
   | wf_unit => rfl
   | wf_btrue => rfl
   | wf_bfalse => rfl
+  | wf_nat => rfl
   | wf_read _ => rfl
   | wf_write _ _ => rfl
   | wf_cond _ _ _ => rfl
@@ -2426,6 +2439,8 @@ theorem compute_reachability_monotonic
   | btrue =>
     rfl
   | bfalse =>
+    rfl
+  | nat =>
     rfl
   | arr =>
     change expand_captures h2 _ = expand_captures h1 _
@@ -2493,7 +2508,7 @@ theorem compute_reachability_update_mcell (h : Heap) (l : Nat) (ℓ : Liveness)
     cases x with
     | free loc => simp only [compute_reachability]
     | bound bx => cases bx
-  | unit | btrue | bfalse => rfl
+  | unit | btrue | bfalse | nat => rfl
 
 /-- Dropping a live mcell preserves `reachability_of_loc` for all locations:
     both the live and dead mcell at `l` reduce to the same singleton, and
@@ -2553,7 +2568,7 @@ theorem compute_reachability_drop_mcell (h : Heap) (l : Nat)
     cases x with
     | free loc => simp only [compute_reachability]
     | bound bx => cases bx
-  | unit | btrue | bfalse => rfl
+  | unit | btrue | bfalse | nat => rfl
 
 /-- Membership unwrapping through `applyAccess` (any access mode). -/
 theorem CapabilitySet.hasmem_of_applyAccess' {C : CapabilitySet} {a : Access}
@@ -2674,6 +2689,7 @@ theorem compute_reachability_dom {H : Heap}
   | unit => exact absurd h CapabilitySet.not_hasmem_empty
   | btrue => exact absurd h CapabilitySet.not_hasmem_empty
   | bfalse => exact absurd h CapabilitySet.not_hasmem_empty
+  | nat _ => exact absurd h CapabilitySet.not_hasmem_empty
   | arr xs => exact expand_captures_dom hdom h
   | pair x y => exact expand_captures_dom hdom h
   | _ => cases hv
@@ -2864,6 +2880,8 @@ theorem Ty.wf_rename
       (Ty.WfInHeap.wf_cap (CaptureSet.wf_rename hwf_cs))
   | wf_bool =>
     simpa only [Ty.rename] using (Ty.WfInHeap.wf_bool)
+  | wf_nat =>
+    simpa only [Ty.rename] using (Ty.WfInHeap.wf_nat)
   | wf_cell hwf_cs _ ih_T =>
     simpa only [Ty.rename] using
       (Ty.WfInHeap.wf_cell (CaptureSet.wf_rename hwf_cs) ih_T)
@@ -2963,6 +2981,8 @@ theorem Exp.wf_rename
     simpa only [Exp.rename] using (Exp.WfInHeap.wf_btrue)
   | wf_bfalse =>
     simpa only [Exp.rename] using (Exp.WfInHeap.wf_bfalse)
+  | wf_nat =>
+    simpa only [Exp.rename] using (Exp.WfInHeap.wf_nat)
   | wf_read hwf_x =>
     simpa only [Exp.rename] using (Exp.WfInHeap.wf_read (Var.wf_rename hwf_x))
   | wf_write hwf_x hwf_y =>
@@ -3237,6 +3257,8 @@ theorem Ty.wf_subst
       (Ty.WfInHeap.wf_cap (CaptureSet.wf_subst hwf_cs hwf_σ))
   | wf_bool =>
     simpa only [Ty.subst] using (Ty.WfInHeap.wf_bool)
+  | wf_nat =>
+    simpa only [Ty.subst] using (Ty.WfInHeap.wf_nat)
   | wf_cell hwf_cs _ ih_T =>
     simpa only [Ty.subst] using
       (Ty.WfInHeap.wf_cell (CaptureSet.wf_subst hwf_cs hwf_σ) (ih_T hwf_σ))
@@ -3342,6 +3364,8 @@ theorem Exp.wf_subst
     simpa only [Exp.subst] using (Exp.WfInHeap.wf_btrue)
   | wf_bfalse =>
     simpa only [Exp.subst] using (Exp.WfInHeap.wf_bfalse)
+  | wf_nat =>
+    simpa only [Exp.subst] using (Exp.WfInHeap.wf_nat)
   | wf_read hwf_x =>
     simpa only [Exp.subst] using (Exp.WfInHeap.wf_read (Var.wf_subst hwf_x hwf_σ))
   | wf_write hwf_x hwf_y =>

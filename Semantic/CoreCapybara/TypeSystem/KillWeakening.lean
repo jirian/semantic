@@ -96,6 +96,7 @@ def Ty.eraseCVars : Ty sort s -> CaptureSet s -> Ty sort s
 | .unit, _ => .unit
 | .cap cs, K => .cap (cs.eraseCVars K)
 | .bool, _ => .bool
+| .nat, _ => .nat
 | .cell cs T, K => .cell (cs.eraseCVars K) (T.eraseCVars K)
 | .reader cs T, K => .reader (cs.eraseCVars K) (T.eraseCVars K)
 | .arr cs T, K => .arr (cs.eraseCVars K) (T.eraseCVars K)
@@ -165,6 +166,7 @@ def Exp.eraseCVars : Exp s -> CaptureSet s -> Exp s
 | .unit, _ => .unit
 | .btrue, _ => .btrue
 | .bfalse, _ => .bfalse
+| .nat n, _ => (.nat n)
 | .read x, _ => .read x
 | .write x y, _ => .write x y
 | .arr xs, _ => .arr xs
@@ -399,6 +401,7 @@ theorem Ty.IsClosed.eraseCVars {T : Ty sort s} (h : T.IsClosed) (K : CaptureSet 
   | unit => exact .unit
   | cap hcs => exact .cap (hcs.eraseCVars K)
   | bool => exact .bool
+  | nat => exact .nat
   | cell hcs _ ih => exact .cell (hcs.eraseCVars K) (ih K)
   | reader hcs _ ih => exact .reader (hcs.eraseCVars K) (ih K)
   | arr hcs _ ih => exact .arr (hcs.eraseCVars K) (ih K)
@@ -572,6 +575,7 @@ theorem Ty.eraseCVars_rename {T : Ty sort s1} {K : CaptureSet s1} {ρ : Rename s
   | tvar x => rfl
   | unit => rfl
   | bool => rfl
+  | nat => rfl
   | cap cs => simp only [Ty.rename, Ty.eraseCVars, CaptureSet.eraseCVars_rename hρ]
   | arrow T1 cs T2 ih1 ih2 =>
     have hbody : (T2.rename ρ.lift).eraseCVars ((K.rename ρ).rename (Rename.succ (k := .var)))
@@ -634,6 +638,7 @@ theorem Exp.eraseCVars_rename {e : Exp s1} {K : CaptureSet s1} {ρ : Rename s1 s
   | unit => rfl
   | btrue => rfl
   | bfalse => rfl
+  | nat _ => rfl
   | read x => rfl
   | write x y => rfl
   | arr xs => rfl
@@ -930,6 +935,7 @@ theorem Ty.eraseCVars_rename_congr {T : Ty sort s1} {ρ : Rename s1 s2}
   | tvar x => rfl
   | unit => rfl
   | bool => rfl
+  | nat => rfl
   | cap cs =>
     simp only [Ty.rename, Ty.eraseCVars, CaptureSet.eraseCVars_rename_congr h]
   | arrow T1 cs T2 ih1 ih2 =>
@@ -1259,6 +1265,7 @@ theorem Ty.eraseCVars_subst_compatible {T : Ty sort s1} {σ σe : Subst s1 s2}
     rw [htvar X]
   | unit => rfl
   | bool => rfl
+  | nat => rfl
   | cap C =>
     simp only [Ty.subst, Ty.eraseCVars, CaptureSet.eraseCVars_subst_compatible hvar hcvar]
   | arrow T1 C T2 ih1 ih2 =>
@@ -3082,6 +3089,9 @@ theorem HasType.erase_kill {s : Sig} {C : CaptureSet s} {Γ : Ctx s} {e : Exp s}
   | bfalse =>
     simp only [Exp.eraseCVars, Ty.eraseCVars]
     exact .bfalse
+  | nat =>
+    simp only [Exp.eraseCVars, Ty.eraseCVars]
+    exact .nat
   | @alloc s0 Γ0 x T hvar ih =>
     have hvar' := ih K
     simp only [Exp.eraseCVars, Ty.eraseCVars] at hvar' ⊢

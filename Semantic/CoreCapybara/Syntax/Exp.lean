@@ -28,6 +28,7 @@ inductive Exp : Sig -> Type where
 | unit : Exp s
 | btrue : Exp s
 | bfalse : Exp s
+| nat : Nat -> Exp s
 | read : Var .var s -> Exp s
 | write : Var .var s -> Var .var s -> Exp s
 | cond : Var .var s -> Exp s -> Exp s -> Exp s
@@ -73,6 +74,7 @@ def Exp.rename : Exp s1 -> Rename s1 s2 -> Exp s2
 | .unit, _ => .unit
 | .btrue, _ => .btrue
 | .bfalse, _ => .bfalse
+| .nat n, _ => .nat n
 | .read x, f => .read (x.rename f)
 | .write x y, f => .write (x.rename f) (y.rename f)
 | .cond x e2 e3, f => .cond (x.rename f) (e2.rename f) (e3.rename f)
@@ -97,6 +99,7 @@ inductive Exp.IsVal : Exp s -> Prop where
 | unit : Exp.IsVal .unit
 | btrue : Exp.IsVal .btrue
 | bfalse : Exp.IsVal .bfalse
+| nat : Exp.IsVal (.nat n)
 | arr : Exp.IsVal (.arr xs)
 | pair : Exp.IsVal (.pair x y)
 
@@ -111,6 +114,7 @@ inductive Exp.IsSimpleVal : Exp s -> Prop where
 | unit : Exp.IsSimpleVal .unit
 | btrue : Exp.IsSimpleVal .btrue
 | bfalse : Exp.IsSimpleVal .bfalse
+| nat : Exp.IsSimpleVal (.nat n)
 | reader : Exp.IsSimpleVal (.reader x)
 | arr : Exp.IsSimpleVal (.arr xs)
 | pair : Exp.IsSimpleVal (.pair x y)
@@ -186,6 +190,7 @@ def Exp.rename_id {e : Exp s} : e.rename (Rename.id) = e := by
   | unit => rfl
   | btrue => rfl
   | bfalse => rfl
+  | nat _ => rfl
   | read x =>
     simp only [Exp.rename, Var.rename_id]
   | write x y =>
@@ -281,6 +286,7 @@ theorem Exp.rename_comp {e : Exp s1} {f : Rename s1 s2} {g : Rename s2 s3} :
   | unit => rfl
   | btrue => rfl
   | bfalse => rfl
+  | nat _ => rfl
   | read x =>
     simp only [Exp.rename, Var.rename_comp]
   | write x y =>
@@ -348,6 +354,7 @@ inductive Exp.IsClosed : Exp s -> Prop where
 | unit : Exp.IsClosed .unit
 | btrue : Exp.IsClosed .btrue
 | bfalse : Exp.IsClosed .bfalse
+| nat : Exp.IsClosed (.nat n)
 | read : Var.IsClosed x -> Exp.IsClosed (.read x)
 | write : Var.IsClosed x -> Var.IsClosed y -> Exp.IsClosed (.write x y)
 | cond : Var.IsClosed x -> Exp.IsClosed e2 -> Exp.IsClosed e3 -> Exp.IsClosed (.cond x e2 e3)

@@ -89,6 +89,7 @@ def Ty.subst : Ty sort s1 -> Subst s1 s2 -> Ty sort s2
 | .unit, _ => .unit
 | .cap cs, s => .cap (cs.subst s)
 | .bool, _ => .bool
+| .nat, _ => .nat
 | .cell cs T, s => .cell (cs.subst s) (T.subst s)
 | .reader cs T, s => .reader (cs.subst s) (T.subst s)
 | .arr cs T, s => .arr (cs.subst s) (T.subst s)
@@ -112,6 +113,7 @@ theorem Ty.IsPureType.subst {T : Ty .capt s1} (h : T.IsPureType) (σ : Subst s1 
   | tvar x => simpa [Ty.subst, Ty.captureSet] using (σ.tvar x).p
   | unit => exact CaptureSet.IsEmpty.empty
   | bool => exact CaptureSet.IsEmpty.empty
+  | nat => exact CaptureSet.IsEmpty.empty
   | arrow _ _ _ => simp only [Ty.subst, Ty.captureSet] at *; exact h.subst σ
   | poly _ _ _ => simp only [Ty.subst, Ty.captureSet] at *; exact h.subst σ
   | cpoly _ _ _ => simp only [Ty.subst, Ty.captureSet] at *; exact h.subst σ
@@ -149,6 +151,7 @@ def Exp.subst : Exp s1 -> Subst s1 s2 -> Exp s2
 | .unit, _ => .unit
 | .btrue, _ => .btrue
 | .bfalse, _ => .bfalse
+| .nat n, _ => (.nat n)
 | .read x, s => .read (x.subst s)
 | .write x y, s => .write (x.subst s) (y.subst s)
 | .cond x e2 e3, s => .cond (x.subst s) (e2.subst s) (e3.subst s)
@@ -458,6 +461,7 @@ theorem Ty.subst_rename_comm {T : Ty sort s1} {σ : Subst s1 s2} {f : Rename s2 
   | unit => rfl
   | cap cs => simp only [Ty.subst, Ty.rename, CaptureSet.subst_rename_comm]
   | bool => rfl
+  | nat => rfl
   | cell cs T ih => simp only [Ty.subst, Ty.rename, ih, CaptureSet.subst_rename_comm]
   | reader cs T ih => simp only [Ty.subst, Ty.rename, ih, CaptureSet.subst_rename_comm]
   | arr cs T ih => simp only [Ty.subst, Ty.rename, ih, CaptureSet.subst_rename_comm]
@@ -492,6 +496,7 @@ theorem Ty.rename_subst_comm {T : Ty sort s1} {f : Rename s1 s2} {σ : Subst s2 
   | unit => rfl
   | cap cs => simp only [Ty.rename, Ty.subst, CaptureSet.rename_subst_comm]
   | bool => rfl
+  | nat => rfl
   | cell cs T ih => simp only [Ty.rename, Ty.subst, ih, CaptureSet.rename_subst_comm]
   | reader cs T ih => simp only [Ty.rename, Ty.subst, ih, CaptureSet.rename_subst_comm]
   | arr cs T ih => simp only [Ty.rename, Ty.subst, ih, CaptureSet.rename_subst_comm]
@@ -726,6 +731,7 @@ theorem Ty.subst_comp {T : Ty sort s1} {σ1 : Subst s1 s2} {σ2 : Subst s2 s3} :
   | unit => rfl
   | cap cs => simp only [Ty.subst, CaptureSet.subst_comp]
   | bool => rfl
+  | nat => rfl
   | cell cs T ih => simp only [Ty.subst, CaptureSet.subst_comp, ih]
   | reader cs T ih => simp only [Ty.subst, CaptureSet.subst_comp, ih]
   | arr cs T ih => simp only [Ty.subst, CaptureSet.subst_comp, ih]
@@ -791,6 +797,7 @@ theorem Exp.subst_comp {e : Exp s1} {σ1 : Subst s1 s2} {σ2 : Subst s2 s3} :
   | unit => rfl
   | btrue => rfl
   | bfalse => rfl
+  | nat _ => rfl
   | read x => simp only [Exp.subst, Var.subst_comp]
   | write x y => simp only [Exp.subst, Var.subst_comp]
   | idx x n y => simp only [Exp.subst, Var.subst_comp]
@@ -910,6 +917,7 @@ theorem Ty.subst_id {T : Ty sort s} :
   | unit => simp only [Ty.subst]
   | cap cs => simp only [Ty.subst, CaptureSet.subst_id]
   | bool => simp only [Ty.subst]
+  | nat => simp only [Ty.subst]
   | cell cs T ih => simp only [Ty.subst, CaptureSet.subst_id, ih]
   | reader cs T ih => simp only [Ty.subst, CaptureSet.subst_id, ih]
   | arr cs T ih => simp only [Ty.subst, CaptureSet.subst_id, ih]
@@ -983,6 +991,7 @@ theorem Exp.subst_id {e : Exp s} :
     rfl
   | btrue => rfl
   | bfalse => rfl
+  | nat _ => rfl
   | read x =>
     simp only [Exp.subst, Var.subst_id]
   | write x y =>
@@ -1131,6 +1140,7 @@ theorem Ty.subst_asSubst {T : Ty sort s1} {f : Rename s1 s2} :
   | unit => simp only [Ty.subst, Ty.rename]
   | cap cs => simp only [Ty.subst, Ty.rename, CaptureSet.subst_asSubst]
   | bool => simp only [Ty.subst, Ty.rename]
+  | nat => simp only [Ty.subst, Ty.rename]
   | cell cs T ih => simp only [Ty.subst, Ty.rename, CaptureSet.subst_asSubst, ih]
   | reader cs T ih => simp only [Ty.subst, Ty.rename, CaptureSet.subst_asSubst, ih]
   | arr cs T ih => simp only [Ty.subst, Ty.rename, CaptureSet.subst_asSubst, ih]
@@ -1205,6 +1215,8 @@ theorem Exp.subst_asSubst {e : Exp s1} {f : Rename s1 s2} :
   | btrue =>
     rfl
   | bfalse =>
+    rfl
+  | nat _ =>
     rfl
   | read x =>
     simp only [Exp.subst, Exp.rename, Var.subst_asSubst]
@@ -1419,6 +1431,7 @@ private theorem Ty.rename_closed_any {T : Ty sort s1} {f : Rename s1 s2}
     cases hc with | cap hcs =>
     exact IsClosed.cap (CaptureSet.rename_closed_any hcs)
   | bool => exact IsClosed.bool
+  | nat => exact IsClosed.nat
   | cell cs T ih =>
     cases hc with | cell hcs hT =>
     exact IsClosed.cell (CaptureSet.rename_closed_any hcs) (ih hT)
@@ -1542,6 +1555,7 @@ def Ty.is_closed_subst {T : Ty sort s1} {σ : Subst s1 s2}
     simp only [Ty.subst]
     exact IsClosed.cap (CaptureSet.is_closed_subst hcs hsubst)
   | bool => exact IsClosed.bool
+  | nat => exact IsClosed.nat
   | cell cs T ih =>
     cases hc with | cell hcs hT =>
     simp only [Ty.subst]
@@ -1674,6 +1688,8 @@ def Exp.is_closed_subst {e : Exp s1} {σ : Subst s1 s2}
     exact IsClosed.btrue
   | bfalse =>
     exact IsClosed.bfalse
+  | nat _ =>
+    exact IsClosed.nat
   | read x =>
     cases hc with | read hx =>
     simp only [Exp.subst]
@@ -1873,6 +1889,7 @@ theorem Ty.subst_closed_inv {T : Ty sort s1} {σ : Subst s1 s2}
     cases hclosed with | cap hcs =>
     exact IsClosed.cap (CaptureSet.subst_closed_inv hcs)
   | bool => exact IsClosed.bool
+  | nat => exact IsClosed.nat
   | cell cs T ih =>
     simp only [Ty.subst] at hclosed
     cases hclosed with | cell hcs hT =>
@@ -1985,6 +2002,9 @@ theorem Exp.subst_closed_inv {e : Exp s1} {σ : Subst s1 s2}
   | bfalse =>
     simp only [Exp.subst] at hclosed
     cases hclosed with | bfalse => exact IsClosed.bfalse
+  | nat _ =>
+    simp only [Exp.subst] at hclosed
+    cases hclosed with | nat => exact IsClosed.nat
   | read x =>
     simp only [Exp.subst] at hclosed
     cases hclosed with | read hx =>

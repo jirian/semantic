@@ -181,6 +181,7 @@ theorem Ty.refineCaptureSet_closed {T : Ty .capt s} {cs : CaptureSet s} :
   | unit => exact IsClosed.unit
   | cap _ => exact IsClosed.cap hcs
   | bool => exact IsClosed.bool
+  | nat => exact IsClosed.nat
   | cell _ hT => exact IsClosed.cell hcs hT
   | reader _ hT => exact IsClosed.reader hcs hT
   | arr _ hT => exact IsClosed.arr hcs hT
@@ -221,6 +222,7 @@ theorem Ty.rename_closed {T : Ty sort s1} {f : Rename s1 s2} :
     cases h with | cap hcs =>
     exact IsClosed.cap (CaptureSet.rename_closed hcs)
   case bool => exact IsClosed.bool
+  case nat => exact IsClosed.nat
   case cell cs T ihT =>
     cases h with | cell hcs hT =>
     exact IsClosed.cell (CaptureSet.rename_closed hcs) (ihT hT)
@@ -278,6 +280,7 @@ theorem Ty.rename_closed_inv {T : Ty sort s1} {f : Rename s1 s2} :
     cases h; rename_i hcs
     exact IsClosed.cap (CaptureSet.rename_closed_inv hcs)
   case bool => exact IsClosed.bool
+  case nat => exact IsClosed.nat
   case cell cs T ihT =>
     simp only [Ty.rename] at h
     cases h with | cell hcs hT =>
@@ -377,6 +380,7 @@ theorem HasType.use_set_is_closed
   | unit => exact CaptureSet.IsClosed.empty
   | btrue => exact CaptureSet.IsClosed.empty
   | bfalse => exact CaptureSet.IsClosed.empty
+  | nat => exact CaptureSet.IsClosed.empty
   | alloc => exact CaptureSet.IsClosed.empty
   | drop _ _ ht_x _ => exact HasType.typed_var_capture_closed ht_x
   | read _ ht_x _ => exact HasType.typed_var_capture_closed ht_x

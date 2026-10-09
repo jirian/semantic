@@ -99,6 +99,7 @@ def kdenot (k : Nat) (st : StoreTyping) (T : Ty .capt {}) (m : Memory) (e : Exp 
   match T with
   | .unit => resolve m.heap e = some .unit
   | .bool => resolve m.heap e = some .btrue ∨ resolve m.heap e = some .bfalse
+  | .nat => ∃ k, resolve m.heap e = some (.nat k)
   | .cell _ Tc =>
       ∃ l n ℓ R, e = .var (.free l) ∧
         m.lookup l = some (.capability (.mcell n ℓ)) ∧ st l = some R ∧
@@ -173,6 +174,9 @@ theorem kdenot_mono (T : Ty .capt {}) {k : Nat} {st1 st2 m1 m2} (hw : WorldLe st
   | .bool => by
       obtain ⟨hsub, _⟩ := hw; unfold kdenot at ht ⊢
       exact ht.imp (resolve_monotonic hsub) (resolve_monotonic hsub)
+  | .nat => by
+      obtain ⟨hsub, _⟩ := hw; unfold kdenot at ht ⊢
+      exact ht.imp (fun _ => resolve_monotonic hsub)
   | .top => by unfold kdenot at ht ⊢; exact ht
   | .tvar _ => by unfold kdenot at ht ⊢; exact ht
   | .cap _ => by unfold kdenot at ht ⊢; exact ht
@@ -208,6 +212,7 @@ theorem kdenot_down (st : StoreTyping) (T : Ty .capt {}) {k : Nat} (m : Memory)
   | .cap _ => by unfold kdenot at ht ⊢; exact ht
   | .unit => by unfold kdenot at ht ⊢; exact ht
   | .bool => by unfold kdenot at ht ⊢; exact ht
+  | .nat => by unfold kdenot at ht ⊢; exact ht
   | .poly _ _ _ => by unfold kdenot at ht ⊢; exact ht
   | .cpoly _ _ _ => by unfold kdenot at ht ⊢; exact ht
   | .consumer _ _ _ => by unfold kdenot at ht ⊢; exact ht

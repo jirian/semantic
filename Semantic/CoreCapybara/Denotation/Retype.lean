@@ -253,6 +253,7 @@ theorem TypeEnv.HasPeak.ty_captureSet_subst {T : Ty .capt s1} {σ : Subst s1 s2}
   | top => exact Iff.rfl
   | unit => exact Iff.rfl
   | bool => exact Iff.rfl
+  | nat => exact Iff.rfl
   | arrow T1 cs T2 => exact Iff.rfl
   | poly T1 cs T2 => exact Iff.rfl
   | cpoly cb cs T => exact Iff.rfl
@@ -607,7 +608,7 @@ def retype_val_denot
   (ρ : Retype env1 σ env2 D) (T : Ty .capt s1) :
   IDenot.Equiv (Ty.val_denot env1 T) (Ty.val_denot env2 (T.subst σ)) :=
   match T with
-  | .top | .unit | .bool => by
+  | .top | .unit | .bool | .nat => by
     intro k st m e
     simp [Ty.val_denot, Ty.subst]
   | .tvar X => by

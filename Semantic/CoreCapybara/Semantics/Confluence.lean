@@ -828,6 +828,7 @@ theorem Ty.renameLoc_eq_of_wf {sort s} {T : Ty sort s} {h : Heap} (hwf : T.WfInH
   | wf_unit => rfl
   | wf_cap hcs => simp only [Ty.renameLoc, CaptureSet.renameLoc_eq_of_wf hcs hfix]
   | wf_bool => rfl
+  | wf_nat => rfl
   | wf_cell hcs _ ih => simp only [Ty.renameLoc, CaptureSet.renameLoc_eq_of_wf hcs hfix, ih hfix]
   | wf_reader hcs _ ih =>
     simp only [Ty.renameLoc, CaptureSet.renameLoc_eq_of_wf hcs hfix, ih hfix]
@@ -887,6 +888,7 @@ theorem Exp.renameLoc_eq_of_wf {s} {e : Exp s} {h : Heap} (hwf : e.WfInHeap h)
   | wf_unit => rfl
   | wf_btrue => rfl
   | wf_bfalse => rfl
+  | wf_nat => rfl
   | wf_read hx => simp only [Exp.renameLoc, Var.renameLoc_eq_of_wf hx hfix]
   | wf_arr hxs =>
     simp only [Exp.renameLoc]

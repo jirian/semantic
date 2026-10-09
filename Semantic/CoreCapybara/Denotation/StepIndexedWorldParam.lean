@@ -128,6 +128,7 @@ step-indexed; its inlined `MemTyped` premise consults the stored relations direc
 def val_denot : Ty .capt {} → (k : Nat) → World k → Memory → Exp {} → Prop
   | .unit, _, _, m, e => resolve m.heap e = some .unit
   | .bool, _, _, m, e => resolve m.heap e = some .btrue ∨ resolve m.heap e = some .bfalse
+  | .nat, _, _, m, e => ∃ k, resolve m.heap e = some (.nat k)
   | .cell _ Tc, k, Ψ, m, e =>
       ∃ l n0 ℓ0 R, e = .var (.free l) ∧
         m.lookup l = some (.capability (.mcell n0 ℓ0)) ∧
@@ -196,6 +197,10 @@ theorem val_denot_worldle_mono (T : Ty .capt {}) {k : Nat} {Ψ1 Ψ2 : World k} {
     rintro (h | h)
     · exact Or.inl (resolve_monotonic hwle.1 h)
     · exact Or.inr (resolve_monotonic hwle.1 h)
+  | nat =>
+    simp only [val_denot]
+    rintro ⟨k, h⟩
+    exact ⟨k, resolve_monotonic hwle.1 h⟩
   | cell cs Tc =>
     simp only [val_denot]
     rintro ⟨l, n0, ℓ0, R, he, hlk, hΨl, hag⟩
