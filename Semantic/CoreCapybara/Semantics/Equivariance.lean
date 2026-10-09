@@ -135,7 +135,7 @@ def Exp.renameLoc (π : Equiv.Perm Nat) : Exp s → Exp s
 | .arr xs => .arr (xs.map (·.renameLoc π))
 | .idx x n d => .idx (x.renameLoc π) n (d.renameLoc π)
 | .concat x y => .concat (x.renameLoc π) (y.renameLoc π)
-| .split x n => .split (x.renameLoc π) n
+| .split x y => .split (x.renameLoc π) (y.renameLoc π)
 | .pair x y => .pair (x.renameLoc π) (y.renameLoc π)
 | .fst x => .fst (x.renameLoc π)
 | .snd x => .snd (x.renameLoc π)
@@ -283,7 +283,7 @@ theorem Exp.renameLoc_rename (π : Equiv.Perm Nat) {s1 s2 : Sig}
   | write x y => simp only [Exp.rename, Exp.renameLoc, Var.renameLoc_rename]
   | idx x n d => simp only [Exp.rename, Exp.renameLoc, Var.renameLoc_rename]
   | concat x y => simp only [Exp.rename, Exp.renameLoc, Var.renameLoc_rename]
-  | split x n => simp only [Exp.rename, Exp.renameLoc, Var.renameLoc_rename]
+  | split x y => simp only [Exp.rename, Exp.renameLoc, Var.renameLoc_rename]
   | pair x y => simp only [Exp.rename, Exp.renameLoc, Var.renameLoc_rename]
   | fst x => simp only [Exp.rename, Exp.renameLoc, Var.renameLoc_rename]
   | snd x => simp only [Exp.rename, Exp.renameLoc, Var.renameLoc_rename]
@@ -685,7 +685,7 @@ theorem Exp.subst_renameLoc (π : Equiv.Perm Nat) {s1 s2 : Sig}
   | write x y => simp only [Exp.subst, Exp.renameLoc, Var.subst_renameLoc]
   | idx x n d => simp only [Exp.subst, Exp.renameLoc, Var.subst_renameLoc]
   | concat x y => simp only [Exp.subst, Exp.renameLoc, Var.subst_renameLoc]
-  | split x n => simp only [Exp.subst, Exp.renameLoc, Var.subst_renameLoc]
+  | split x y => simp only [Exp.subst, Exp.renameLoc, Var.subst_renameLoc]
   | pair x y => simp only [Exp.subst, Exp.renameLoc, Var.subst_renameLoc]
   | fst x => simp only [Exp.subst, Exp.renameLoc, Var.subst_renameLoc]
   | snd x => simp only [Exp.subst, Exp.renameLoc, Var.subst_renameLoc]
@@ -886,7 +886,7 @@ theorem Exp.WfInHeap.renameLoc {e : Exp s} {h : Heap} (hwf : e.WfInHeap h)
     exact (hxs x0 hx0).renameLoc π
   | wf_idx hx hd => exact .wf_idx (hx.renameLoc π) (hd.renameLoc π)
   | wf_concat hx hy => exact .wf_concat (hx.renameLoc π) (hy.renameLoc π)
-  | wf_split hx => exact .wf_split (hx.renameLoc π)
+  | wf_split hx hy => exact .wf_split (hx.renameLoc π) (hy.renameLoc π)
   | wf_pair hx hy => exact .wf_pair (hx.renameLoc π) (hy.renameLoc π)
   | wf_fst hx => exact .wf_fst (hx.renameLoc π)
   | wf_snd hx => exact .wf_snd (hx.renameLoc π)
@@ -1123,7 +1123,7 @@ theorem Exp.renameLoc_id {e : Exp s} : e.renameLoc (Equiv.refl Nat) = e := by
   | write x y => simp only [Exp.renameLoc, Var.renameLoc_id]
   | idx x n d => simp only [Exp.renameLoc, Var.renameLoc_id]
   | concat x y => simp only [Exp.renameLoc, Var.renameLoc_id]
-  | split x n => simp only [Exp.renameLoc, Var.renameLoc_id]
+  | split x y => simp only [Exp.renameLoc, Var.renameLoc_id]
   | pair x y => simp only [Exp.renameLoc, Var.renameLoc_id]
   | fst x => simp only [Exp.renameLoc, Var.renameLoc_id]
   | snd x => simp only [Exp.renameLoc, Var.renameLoc_id]
@@ -1264,7 +1264,7 @@ theorem Exp.renameLoc_comp {e : Exp s} {π ρ : Equiv.Perm Nat} :
   | write x y => simp only [Exp.renameLoc, Var.renameLoc_comp]
   | idx x n d => simp only [Exp.renameLoc, Var.renameLoc_comp]
   | concat x y => simp only [Exp.renameLoc, Var.renameLoc_comp]
-  | split x n => simp only [Exp.renameLoc, Var.renameLoc_comp]
+  | split x y => simp only [Exp.renameLoc, Var.renameLoc_comp]
   | pair x y => simp only [Exp.renameLoc, Var.renameLoc_comp]
   | fst x => simp only [Exp.renameLoc, Var.renameLoc_comp]
   | snd x => simp only [Exp.renameLoc, Var.renameLoc_comp]
@@ -1622,6 +1622,13 @@ theorem Memory.lookup_arr_renameLoc {m : Memory} {x : Nat} {ls : List Nat} {R : 
   rw [h']
   simp only [HeapVal.renameLoc, Exp.renameLoc, List.map_map, Function.comp_def, Var.renameLoc]
 
+theorem Memory.lookup_nat_renameLoc {m : Memory} {x : Nat} {n : Nat} {R : CapabilitySet}
+    (h : m.lookup x = some (.val ⟨.nat n, .nat, R⟩)) (π : Equiv.Perm Nat) :
+    (m.renameLoc π).lookup (π x) = some (.val ⟨.nat n, .nat, R.renameLoc π⟩) := by
+  have h' := Memory.lookup_val_renameLoc h π
+  rw [h']
+  simp only [HeapVal.renameLoc, Exp.renameLoc]
+
 theorem List.getD_map_apply {α β : Type} (f : α → β) (l : List α) (n : Nat) (d : α) :
     (l.map f).getD n (f d) = f (l.getD n d) := by
   induction l generalizing n with
@@ -1670,10 +1677,10 @@ theorem Step.renameLoc {t : Trace} {m m' : Memory} {e e' : Exp {}}
     have h := Step.step_concat (Memory.lookup_arr_renameLoc hx π) (Memory.lookup_arr_renameLoc hy π)
     simpa only [Exp.renameLoc, Var.renameLoc, List.map_map, Function.comp_def,
       List.map_append] using h
-  | step_split hlk =>
+  | step_split hlk hlki =>
     simp only [Exp.renameLoc, Var.renameLoc]
     rw [Exp.splitExp_renameLoc]
-    exact Step.step_split (Memory.lookup_arr_renameLoc hlk π)
+    exact Step.step_split (Memory.lookup_arr_renameLoc hlk π) (Memory.lookup_nat_renameLoc hlki π)
   | step_fst hlk =>
     exact Step.step_fst (by rw [Memory.lookup_renameLoc, hlk]; rfl)
   | step_snd hlk =>
@@ -1783,10 +1790,10 @@ theorem SeqStep.renameLoc {t : Trace} {m m' : Memory} {e e' : Exp {}}
     have h := SeqStep.step_concat (Memory.lookup_arr_renameLoc hx π) (Memory.lookup_arr_renameLoc hy π)
     simpa only [Exp.renameLoc, Var.renameLoc, List.map_map, Function.comp_def,
       List.map_append] using h
-  | step_split hlk =>
+  | step_split hlk hlki =>
     simp only [Exp.renameLoc, Var.renameLoc]
     rw [Exp.splitExp_renameLoc]
-    exact SeqStep.step_split (Memory.lookup_arr_renameLoc hlk π)
+    exact SeqStep.step_split (Memory.lookup_arr_renameLoc hlk π) (Memory.lookup_nat_renameLoc hlki π)
   | step_fst hlk =>
     exact SeqStep.step_fst (by rw [Memory.lookup_renameLoc, hlk]; rfl)
   | step_snd hlk =>
@@ -1894,10 +1901,10 @@ theorem BigStep.renameLoc {t : Trace} {m m' : Memory} {e v : Exp {}}
       (Memory.lookup_arr_renameLoc hy π)
     simpa only [Exp.renameLoc, Var.renameLoc, List.map_map, Function.comp_def,
       List.map_append] using h
-  | bs_split hlk _ ih =>
+  | bs_split hlk hlki _ ih =>
     simp only [Exp.renameLoc, Var.renameLoc]
     rw [Exp.splitExp_renameLoc] at ih
-    exact BigStep.bs_split (Memory.lookup_arr_renameLoc hlk π) ih
+    exact BigStep.bs_split (Memory.lookup_arr_renameLoc hlk π) (Memory.lookup_nat_renameLoc hlki π) ih
   | bs_fst hlk =>
     exact BigStep.bs_fst (by rw [Memory.lookup_renameLoc, hlk]; rfl)
   | bs_snd hlk =>

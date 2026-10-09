@@ -149,14 +149,30 @@ theorem HasType.letin_pure {Γ : Ctx s} {e1 : Exp s} {e2 : Exp (s,x)} {T : Ty .c
   have h := HasType.letin (C2 := C2) (.seq_sep .sep_empty) h1 (by rw [kill_peaks_empty']; exact h2)
   exact HasType.subtyp h (.sc_union (.sc_elem .empty) (.sc_elem .refl)) .refl hC2 hU
 
-def ΓA : Ctx (({},C),x) :=
-  (Ctx.empty ,C[.can_drop]<: .unbound) ,x: (.arr (.cvar (.M .epsilon) .here) .unit)
+/-- A variable of type `nat` (the split position). -/
+theorem HasType.nat_var {Γ : Ctx s} {x : BVar s .var} (hΓ : Γ.IsClosed)
+    (hlk : Γ.LookupVar x .nat) : HasType {} Γ (.var (.bound x)) (.typ .nat) :=
+  HasType.var hΓ hlk
+
+theorem Ctx.LookupVar.nat_there {Γ : Ctx s} {x : BVar s .var} {b : Binding s k}
+    (h : Γ.LookupVar x .nat) : (Γ.push b).LookupVar x.there .nat :=
+  Ctx.LookupVar.there h
+
+/-- Looks up a `nat` variable in a concrete context. -/
+macro "nat_lookup" : tactic => `(tactic| (
+  (try simp only [Ctx.push_var, Ctx.push_lock, Ctx.extendCVars, Ctx.push_cvar]);
+  repeat (first | exact (Ctx.LookupVar.here (T := .nat)) | apply Ctx.LookupVar.nat_there)))
+
+/-- The split position `i : nat` sits at the bottom of each example context, so it does not
+shift the de Bruijn indices of the other variables. -/
+def ΓA : Ctx ((({},x),C),x) :=
+  ((Ctx.empty ,x: .nat) ,C[.can_drop]<: .unbound) ,x: (.arr (.cvar (.M .epsilon) .here) .unit)
 
 theorem ΓA_closed : ΓA.IsClosed := by
   repeat constructor
 
 theorem ΓA_split : HasType ((.var (.M .epsilon) (.bound .here)) ∪ (.var .drop (.bound .here))) ΓA
-    (.split (.bound .here) 1)
+    (.split (.bound .here) (.bound (.there (.there .here))))
     (.exi 2 (Ty.splitBody (.var (.M .epsilon) (.bound .here)) .unit)) := by
   apply HasType.split ΓA_closed
   · intro a c h
@@ -167,10 +183,11 @@ theorem ΓA_split : HasType ((.var (.M .epsilon) (.bound .here)) ∪ (.var .drop
     obtain ⟨_, rfl⟩ := CaptureSet.cvar_subset_cvar_inv h
     rfl
   · exact HasType.var ΓA_closed .here
+  · exact HasType.nat_var ΓA_closed (by nat_lookup)
 
 /-- After the split, the parent's root is killed. -/
-def ΓAk : Ctx (({},C),x) :=
-  (Ctx.empty ,C[.killed]<: .unbound) ,x: (.arr (.cvar (.M .epsilon) .here) .unit)
+def ΓAk : Ctx ((({},x),C),x) :=
+  ((Ctx.empty ,x: .nat) ,C[.killed]<: .unbound) ,x: (.arr (.cvar (.M .epsilon) .here) .unit)
 
 set_option hygiene false in
 macro "auto_closed" : tactic => `(tactic| (
@@ -210,17 +227,17 @@ theorem ΓA_kill : ΓA.kill_peaks ((CaptureSet.peakset ΓA
   rfl
 
 /-- The continuation of the round trip: project the halves, join them, split again. -/
-def rtCont : Exp ((((({},C),x).extendCVars 2),x)) :=
+def rtCont : Exp (((((({},x),C),x).extendCVars 2),x)) :=
   .letin (.fst (.bound .here))
     (.letin (.snd (.bound (.there .here)))
       (.letin (.concat (.bound (.there .here)) (.bound .here))
-        (.unpack 2 (.split (.bound .here) 1) .unit)))
+        (.unpack 2 (.split (.bound .here) (.bound (.there (.there (.there (.there (.there (.there (.there (.there .here)))))))))) .unit)))
 
 /-- **Round trip.** Split an owned array, join the two halves (their separation is derived
 by the unchanged `sep_droppable` rule), and split the joined array again (its peaks are the
 two fresh, droppable roots). -/
 theorem roundTrip_typed : HasType ((.var (.M .epsilon) (.bound .here)) ∪ (.var .drop (.bound .here))) ΓA
-    (.unpack 2 (.split (.bound .here) 1) rtCont) (.typ .unit) := by
+    (.unpack 2 (.split (.bound .here) (.bound (.there (.there .here)))) rtCont) (.typ .unit) := by
   have h := HasType.unpack (C2 := {}) (U := .typ .unit) (u := rtCont) (n := 2)
     (Γ := ΓA) ?seq ?drop ΓA_split ?cont
   · exact HasType.subtyp h
@@ -262,12 +279,14 @@ theorem roundTrip_typed : HasType ((.var (.M .epsilon) (.bound .here)) ∪ (.var
         case k3 =>
           refine HasType.subtyp
             (HasType.unpack (C2 := {}) (.seq_sep (.sep_symm .sep_empty)) ?dr4
-              (HasType.split ?cl4 ?dr4' (HasType.var ?cl4' .here))
+              (HasType.split ?cl4 ?dr4' (HasType.var ?cl4' .here) (HasType.nat_var ?cl4n ?lk4n))
               (HasType.subtyp HasType.unit (.sc_elem .empty) .refl
                 (by repeat constructor) (by repeat constructor)))
             ?sc4 .refl ?cc4 ?ec4
           case cl4 => auto_closed
           case cl4' => auto_closed
+          case cl4n => auto_closed
+          case lk4n => simp only [ΓAk]; nat_lookup
           case dr4 =>
             intro a c h
             peaks_at h
@@ -309,18 +328,18 @@ theorem roundTrip_typed : HasType ((.var (.M .epsilon) (.bound .here)) ∪ (.var
 /-- The round trip is semantically well typed (fundamental theorem). -/
 theorem roundTrip_sound : SemanticTyping
     ((.var (.M .epsilon) (.bound .here)) ∪ (.var .drop (.bound .here))) ΓA
-    (.unpack 2 (.split (.bound .here) 1) rtCont) (.typ .unit) :=
+    (.unpack 2 (.split (.bound .here) (.bound (.there (.there .here)))) rtCont) (.typ .unit) :=
   fundamental ΓA_closed roundTrip_typed
 
 
 /-! ## `process`: split, write both halves in parallel, consume one, return the other -/
 
-abbrev SigP : Sig := (((((((({},C),x),C),x),C),x),x),x)
+abbrev SigP : Sig := ((((((((({},x),C),x),C),x),C),x),x),x)
 
 /-- Context of the body of `process(consume buf)`: the owned array `buf`, two owned fallback
 cells `e1`, `e2` (for indexing), a unit value `u`, and a consumer `send`. -/
 def ΓP : Ctx SigP :=
-  ((((((((Ctx.empty ,C[.can_drop]<: .unbound)
+  ((((((((Ctx.empty ,x: .nat ,C[.can_drop]<: .unbound)
     ,x: (.arr (.cvar (.M .epsilon) .here) .unit))
     ,C[.can_drop]<: .unbound)
     ,x: (.cell (.cvar (.M .epsilon) .here) .unit))
@@ -343,7 +362,7 @@ def procCont : Exp ((SigP.extendCVars 2),x) :=
 /-- **process.** `split buf`, write both halves in parallel, send one half, return the other
 as a fresh array. -/
 def procBody : Exp SigP :=
-  .unpack 2 (.split (.bound (.there (.there (.there (.there (.there (.there .here))))))) 1) procCont
+  .unpack 2 (.split (.bound (.there (.there (.there (.there (.there (.there .here))))))) (.bound (.there (.there (.there (.there (.there (.there (.there (.there .here)))))))))) procCont
 
 
 set_option hygiene false in
@@ -373,7 +392,7 @@ theorem ΓP_closed : ΓP.IsClosed := by
 
 /-- After the split, `buf`'s root is killed. -/
 def ΓPk : Ctx SigP :=
-  ((((((((Ctx.empty ,C[.killed]<: .unbound)
+  ((((((((Ctx.empty ,x: .nat ,C[.killed]<: .unbound)
     ,x: (.arr (.cvar (.M .epsilon) .here) .unit))
     ,C[.can_drop]<: .unbound)
     ,x: (.cell (.cvar (.M .epsilon) .here) .unit))
@@ -391,13 +410,14 @@ theorem ΓP_kill : ΓP.kill_peaks ((CaptureSet.peakset ΓP
     Ctx.push_var, Ctx.push_cvar]
   rfl
 
-theorem ΓP_split : HasType ((.var (.M .epsilon) (.bound (.there (.there (.there (.there (.there (.there .here)))))))) ∪ (.var .drop (.bound (.there (.there (.there (.there (.there (.there .here))))))))) ΓP (.split (.bound (.there (.there (.there (.there (.there (.there .here))))))) 1)
+theorem ΓP_split : HasType ((.var (.M .epsilon) (.bound (.there (.there (.there (.there (.there (.there .here)))))))) ∪ (.var .drop (.bound (.there (.there (.there (.there (.there (.there .here))))))))) ΓP (.split (.bound (.there (.there (.there (.there (.there (.there .here))))))) (.bound (.there (.there (.there (.there (.there (.there (.there (.there .here))))))))))
     (.exi 2 (Ty.splitBody (.var (.M .epsilon) (.bound (.there (.there (.there (.there (.there (.there .here)))))))) .unit)) := by
   apply HasType.split ΓP_closed
   · intro a c h
     peaks_at h
     cvar_cases h
   · exact HasType.var ΓP_closed (.there (.there (.there (.there (.there (.there .here))))))
+  · exact HasType.nat_var ΓP_closed (by simp only [ΓP]; nat_lookup)
 
 theorem procBody_typed : HasType (((.var (.M .epsilon) (.bound (.there (.there (.there (.there (.there (.there .here)))))))) ∪ (.var .drop (.bound (.there (.there (.there (.there (.there (.there .here))))))))) ∪ ((.var (.M .epsilon) (.bound (.there (.there (.there (.there .here)))))) ∪ (.var (.M .epsilon) (.bound (.there (.there .here)))) ∪ (.var (.M .epsilon) (.bound .here))))
     ΓP procBody (.exi 1 (.arr (.cvar (.M .epsilon) .here) .unit)) := by
@@ -537,12 +557,12 @@ theorem procBody_sound : SemanticTyping
   fundamental ΓP_closed procBody_typed
 
 /-! ## Borrowed split: split without consuming, use both halves in parallel, reuse the parent -/
-abbrev SigB : Sig := ((((((({},C),x),C),x),C),x),x)
+abbrev SigB : Sig := (((((((({},x),C),x),C),x),C),x),x)
 
 /-- An array `buf` (owned in the context, but only borrowed below), two fallback
 cells `e1`, `e2` and a unit value `u`. -/
 def ΓB : Ctx SigB :=
-  (((((((Ctx.empty ,C[.can_drop]<: .unbound)
+  (((((((Ctx.empty ,x: .nat ,C[.can_drop]<: .unbound)
     ,x: (.arr (.cvar (.M .epsilon) .here) .unit))
     ,C[.can_drop]<: .unbound)
     ,x: (.cell (.cvar (.M .epsilon) .here) .unit))
@@ -564,7 +584,7 @@ def contB : Exp ((SigB.extendCVars 2),x) :=
 /-- **Borrowed split.** Split `buf` without consuming it, write both halves in parallel,
 then use `buf` again. -/
 def borrowBody : Exp SigB :=
-  .letin (.unpack 2 (.split (.bound (.there (.there (.there (.there (.there .here)))))) 1) contB)
+  .letin (.unpack 2 (.split (.bound (.there (.there (.there (.there (.there .here)))))) (.bound (.there (.there (.there (.there (.there (.there (.there .here))))))))) contB)
     (.letin (.idx (.bound (.there (.there (.there (.there (.there (.there .here))))))) 0
         (.bound (.there (.there (.there (.there .here))))))
       (.write (.bound .here) (.bound (.there (.there .here)))))
@@ -573,10 +593,11 @@ theorem borrow_unpack_typed : HasType
     ((.var (.M .epsilon) (.bound (.there (.there (.there (.there (.there .here))))))) ∪
       ((.var (.M .epsilon) (.bound (.there (.there (.there .here))))) ∪
         (.var (.M .epsilon) (.bound (.there .here)))))
-    ΓB (.unpack 2 (.split (.bound (.there (.there (.there (.there (.there .here)))))) 1) contB)
+    ΓB (.unpack 2 (.split (.bound (.there (.there (.there (.there (.there .here)))))) (.bound (.there (.there (.there (.there (.there (.there (.there .here))))))))) contB)
     (.typ .unit) := by
   refine HasType.splitb ΓB_closed (by repeat constructor) ?ao
-    (HasType.var ΓB_closed (.there (.there (.there (.there (.there .here)))))) ?cont
+    (HasType.var ΓB_closed (.there (.there (.there (.there (.there .here))))))
+    (HasType.nat_var ΓB_closed (by simp only [ΓB]; nat_lookup)) ?cont
   case ao =>
     intro c h
     peaks_at h
@@ -700,18 +721,20 @@ theorem HasType.arr_ctx {Γ : Ctx s} {xs : List (BVar s .var)} {T : Ty .capt s}
 halves, join them again, and return the joined array as a *fresh* owned array (re-fusion:
 packing the join consumes both halves). -/
 def closedProg : Exp {} :=
-  .letin .unit
+  .letin (.nat 1)
+  (.letin .unit
   (.unpack 1 (.alloc (.bound .here))
   (.unpack 1 (.alloc (.bound (.there (.there .here))))
   (.letin (.arr [(.bound (.there (.there .here))), (.bound .here)])
-  (.unpack 2 (.split (.bound .here) 1)
+  (.unpack 2 (.split (.bound .here) (.bound (.there (.there (.there (.there (.there (.there .here))))))))
     (.letin (.fst (.bound .here))
     (.letin (.snd (.bound (.there .here)))
     (.letin (.pair (.bound (.there .here)) (.bound .here))
     (.letin (.concat (.bound (.there (.there .here))) (.bound (.there .here)))
-      (.pack ⟨[.var (.M .epsilon) (.bound .here)], rfl⟩ (.bound .here))))))))))
+      (.pack ⟨[.var (.M .epsilon) (.bound .here)], rfl⟩ (.bound .here)))))))))))
 
 theorem closedProg_typed : HasType {} Ctx.empty closedProg (.exi 1 (.arr (.cvar (.M .epsilon) .here) .unit)) := by
+  refine HasType.letin_pure (by auto_closed) (by auto_closed) HasType.nat ?kn
   refine HasType.letin_pure (by auto_closed) (by auto_closed) HasType.unit ?k0
   refine HasType.unpack_pure (by auto_closed) (by auto_closed)
     (HasType.alloc (HasType.var (by auto_closed) .here)) ?k1
@@ -736,7 +759,8 @@ theorem closedProg_typed : HasType {} Ctx.empty closedProg (.exi 1 (.arr (.cvar 
     sep_tac
   refine HasType.subtyp
     (HasType.unpack (C1 := (.var (.M .epsilon) (.bound .here)) ∪ (.var .drop (.bound .here)))
-      (C2 := {}) ?seqS ?dropS (HasType.split ?clS ?drS (HasType.var ?clvS .here)) ?bodyS)
+      (C2 := {}) ?seqS ?dropS (HasType.split ?clS ?drS (HasType.var ?clvS .here)
+        (HasType.nat_var ?clnS (by nat_lookup))) ?bodyS)
     ?scS .refl ?ccS ?uuS
   case seqS => exact .seq_sep (.sep_symm .sep_empty)
   case dropS =>

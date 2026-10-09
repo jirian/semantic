@@ -392,10 +392,10 @@ theorem HasType.use_set_is_closed
   | arr => exact CaptureSet.IsClosed.empty
   | idx => exact CaptureSet.IsClosed.empty
   | concat => exact CaptureSet.IsClosed.empty
-  | split _ _ ht_x _ =>
+  | split _ _ ht_x _ _ =>
     exact CaptureSet.IsClosed.union (HasType.typed_var_capture_closed ht_x)
       (HasType.typed_var_capture_closed ht_x)
-  | splitb _ hC2 _ ht_x _ _ _ =>
+  | splitb _ hC2 _ ht_x _ _ _ _ =>
     exact CaptureSet.IsClosed.union (HasType.typed_var_capture_closed ht_x) hC2
   | pair => exact CaptureSet.IsClosed.empty
   | fst => exact CaptureSet.IsClosed.empty
@@ -522,12 +522,12 @@ theorem HasType.exp_is_closed
   case concat ih_x ih_y =>
     cases ih_x; cases ih_y
     exact Exp.IsClosed.concat (by assumption) (by assumption)
-  case split ih_x =>
-    cases ih_x
-    exact Exp.IsClosed.split (by assumption)
-  case splitb ih_x ih_u =>
-    cases ih_x
-    exact Exp.IsClosed.unpack (Exp.IsClosed.split (by assumption))
+  case split ih_x ih_i =>
+    cases ih_x; cases ih_i
+    exact Exp.IsClosed.split (by assumption) (by assumption)
+  case splitb ih_x ih_i ih_u =>
+    cases ih_x; cases ih_i
+    exact Exp.IsClosed.unpack (Exp.IsClosed.split (by assumption) (by assumption))
       (Exp.rename_closed_inv ih_u)
   case pair ih_x ih_y =>
     cases ih_x; cases ih_y
@@ -556,6 +556,7 @@ theorem CaptureSet.ofVars_closed {xs : List (Var .var s)}
     cases h x List.mem_cons_self
     exact CaptureSet.IsClosed.var_bound
 
+set_option maxHeartbeats 800000 in
 theorem HasType.type_is_closed
   (ht : HasType C Γ e E) :
   E.IsClosed := by
@@ -575,7 +576,7 @@ theorem HasType.type_is_closed
     exact Ty.IsClosed.typ (Ty.IsClosed.arr
       (CaptureSet.IsClosed.union (HasType.typed_var_capture_closed ht_x)
         (HasType.typed_var_capture_closed ht_y)) hT)
-  case split ih_x =>
+  case split ih_x _ =>
     cases ih_x with | typ h => cases h with | arr _ hT =>
     have hT' := Ty.rename_closed (f := Rename.weakenCVars 2) hT
     exact Ty.IsClosed.exi (Ty.IsClosed.pair

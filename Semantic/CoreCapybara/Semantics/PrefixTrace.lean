@@ -128,7 +128,7 @@ theorem GSeqStep.touched_cap_result {t : Trace} {m m' : Memory} {e e' : Exp {}}
     ∀ l, Trace.touched t l → ∃ c, m'.lookup l = some (.capability c) := by
   induction h with
   | step_apply _ | step_tapply _ | step_capply _ | step_consumer_app _ | step_unwrap _
-  | step_idx _ _ | step_concat _ _ | step_split _ | step_fst _ | step_snd _
+  | step_idx _ _ | step_concat _ _ | step_split _ _ | step_fst _ | step_snd _
   | step_cond_var_true _ | step_cond_var_false _ | step_alloc _ _ | step_par_join _ _
   | step_rename | step_lift _ _ _ | step_unpack =>
     intro l ht; simp only [Trace.touched] at ht
@@ -308,20 +308,22 @@ theorem PrefixSafe.unwrap {k : Nat} {m : Memory} {x : Nat} {cs Ψ e hv R0}
       exact ⟨by simpa using htok, GSeqReduce.step (GSeqStep.step_unwrap hlk) hg⟩
 
 /-- `split`: reduces silently to the derived allocation-and-pack expression. -/
-theorem PrefixSafe.split {k : Nat} {m : Memory} {x : Nat} {ls : List Nat} {n : Nat}
-    {R0 : CapabilitySet} {R : CapabilitySet}
+theorem PrefixSafe.split {k : Nat} {m : Memory} {x i : Nat} {ls : List Nat} {n : Nat}
+    {R0 Ri : CapabilitySet} {R : CapabilitySet}
     (hlk : m.lookup x = some (.val ⟨.arr (ls.map Var.free), .arr, R0⟩))
+    (hlki : m.lookup i = some (.val ⟨.nat n, .nat, Ri⟩))
     (hrec : PrefixSafe k m (Exp.splitExp ls n) R) :
-    PrefixSafe k m (.split (.free x) n) R := by
+    PrefixSafe k m (.split (.free x) (.free i)) R := by
   intro t m' e' hred hbud
   cases hred with
   | refl => exact ⟨TraceOk.nil, GSeqReduce.refl⟩
   | step h rest =>
     cases h with
-    | step_split hlk2 =>
+    | step_split hlk2 hlk2i =>
       obtain rfl := Memory.lookup_arr_eq hlk hlk2
+      obtain rfl := Memory.lookup_nat_eq hlki hlk2i
       obtain ⟨htok, hg⟩ := hrec rest (by simpa using hbud)
-      exact ⟨by simpa using htok, GSeqReduce.step (GSeqStep.step_split hlk) hg⟩
+      exact ⟨by simpa using htok, GSeqReduce.step (GSeqStep.step_split hlk hlki) hg⟩
 
 /-- `idx`: a silent lookup answering a variable. -/
 theorem PrefixSafe.idx {k : Nat} {m : Memory} {x d : Nat} {n : Nat} {R : CapabilitySet} :

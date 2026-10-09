@@ -68,7 +68,8 @@ inductive Step : Trace -> Memory -> Exp {} -> Memory -> Exp {} -> Prop where
   Step [] m (.concat (.free x) (.free y)) m (.arr ((ls1 ++ ls2).map .free))
 | step_split {ls : List Nat} {n : Nat} :
   m.lookup x = some (.val ⟨.arr (ls.map Var.free), .arr, R⟩) ->
-  Step [] m (.split (.free x) n) m (Exp.splitExp ls n)
+  m.lookup i = some (.val ⟨.nat n, .nat, Ri⟩) ->
+  Step [] m (.split (.free x) (.free i)) m (Exp.splitExp ls n)
 | step_fst :
   m.lookup p = some (.val ⟨.pair (.free x) (.free y), .pair, R⟩) ->
   Step [] m (.fst (.free p)) m (.var (.free x))
@@ -199,7 +200,8 @@ inductive SeqStep : Trace -> Memory -> Exp {} -> Memory -> Exp {} -> Prop where
   SeqStep [] m (.concat (.free x) (.free y)) m (.arr ((ls1 ++ ls2).map .free))
 | step_split {ls : List Nat} {n : Nat} :
   m.lookup x = some (.val ⟨.arr (ls.map Var.free), .arr, R⟩) ->
-  SeqStep [] m (.split (.free x) n) m (Exp.splitExp ls n)
+  m.lookup i = some (.val ⟨.nat n, .nat, Ri⟩) ->
+  SeqStep [] m (.split (.free x) (.free i)) m (Exp.splitExp ls n)
 | step_fst :
   m.lookup p = some (.val ⟨.pair (.free x) (.free y), .pair, R⟩) ->
   SeqStep [] m (.fst (.free p)) m (.var (.free x))

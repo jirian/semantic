@@ -6872,6 +6872,18 @@ theorem resolve_var_pair_lookup {m : Memory} {p x y : Nat}
     exact ⟨R, hv⟩
   · cases h
 
+theorem resolve_var_nat_lookup {m : Memory} {p n : Nat}
+    (h : resolve m.heap (.var (.free p)) = some (.nat n)) :
+    ∃ R, m.lookup p = some (.val ⟨.nat n, .nat, R⟩) := by
+  simp only [resolve] at h
+  split at h
+  · rename_i v hv
+    obtain ⟨u, hu, R⟩ := v
+    simp only [Option.some.injEq] at h
+    subst h
+    exact ⟨R, hv⟩
+  · cases h
+
 theorem resolve_var_arr_lookup {m : Memory} {p : Nat} {ls : List Nat}
     (h : resolve m.heap (.var (.free p)) = some (.arr (ls.map Var.free))) :
     ∃ R, m.lookup p = some (.val ⟨.arr (ls.map Var.free), .arr, R⟩) := by
@@ -7255,11 +7267,11 @@ theorem BigStep.val_inv_simple {m m' : Memory} {v w : Exp {}} {t : Trace}
     (hv : Exp.IsSimpleVal v) (h : BigStep m v t w m') : t = [] ∧ w = v ∧ m' = m := by
   cases hv <;> cases h <;> trivial
 
-theorem BigStep.split_trace_nil {m m' : Memory} {x : Var .var {}} {n : Nat} {t : Trace}
-    {v : Exp {}} (h : BigStep m (.split x n) t v m') : t = [] := by
+theorem BigStep.split_trace_nil {m m' : Memory} {x i : Var .var {}} {t : Trace}
+    {v : Exp {}} (h : BigStep m (.split x i) t v m') : t = [] := by
   cases h with
   | bs_val hv => cases hv
-  | bs_split hlk hb =>
+  | bs_split hlk _ hb =>
     unfold Exp.splitExp at hb
     cases hb with
     | bs_val hv => cases hv
@@ -7383,15 +7395,17 @@ theorem List.take_drop_partition {ls : List Nat} (hnd : ls.Nodup) (n : Nat) :
 /-- Strengthened evaluation of `split`: besides the semantic-typing postcondition,
 the run emits no events, every witness reaches only cells of the array `x` (at `ε`),
 and the run is prefix-safe for any budget. -/
-theorem sem_split_strong {x : BVar s .var} {n : Nat} {C : CaptureSet s} {T : Ty .capt s}
+theorem sem_split_strong {x i : BVar s .var} {C : CaptureSet s} {T : Ty .capt s}
   (_hΓ : Γ.IsClosed)
   (hx : SemanticTyping {} Γ (Exp.var (.bound x)) (.typ (.arr C T)))
+  (hi : SemanticTyping {} Γ (Exp.var (.bound i)) (.typ .nat))
   {env : TypeEnv s} {k : Nat} {st : StoreTyping k} {store : Memory}
   (hts : EnvTyping Γ env k st store) (hdsep : env.EnvSepWf)
   (hcompat : store.is_compatible
     (((.var (.M .epsilon) (.bound x)) ∪ (.var .drop (.bound x)) : CaptureSet s).denot env store))
   (hmt : MemTyped k st store) :
-  Eval k store (Exp.split (.free (env.lookup_var x).1) n) (fun t v m' =>
+  Eval k store (Exp.split (.free (env.lookup_var x).1) (.free (env.lookup_var i).1))
+    (fun t v m' =>
     t.readCount < k →
     (TraceOk t ((((.var (.M .epsilon) (.bound x)) ∪ (.var .drop (.bound x))) :
         CaptureSet s).denot env store) ∧
@@ -7407,9 +7421,16 @@ theorem sem_split_strong {x : BVar s .var} {n : Nat} {C : CaptureSet s} {T : Ty 
       ∀ cs' ∈ cs.toList, ∀ mu l, (cs'.ground_denot m').hasmem mu l →
         ((CaptureSet.var (.M .epsilon) (.bound x) : CaptureSet s).denot env store).covers
           mu l)) ∧
-  ∀ R, PrefixSafe k store (Exp.split (.free (env.lookup_var x).1) n) R := by
+  ∀ R, PrefixSafe k store
+    (Exp.split (.free (env.lookup_var x).1) (.free (env.lookup_var i).1)) R := by
   rcases Nat.eq_zero_or_pos k with rfl | hkpos
   · exact ⟨Eval.exhausted, fun _ => prefixSafe_zero⟩
+  -- the split position: `i` holds a natural number `n` at run time
+  have hi1 := semtyp_to_exi_exp_denot hi hts hdsep (Memory.is_compatible_empty store)
+  obtain ⟨_, _, _, hivl⟩ := var_exp_denot_inv hkpos hmt hi1
+  simp only [Ty.exi_val_denot, Ty.val_denot] at hivl
+  obtain ⟨n, hires⟩ := hivl
+  obtain ⟨Ri, hlki⟩ := resolve_var_nat_lookup hires
   have h1 := semtyp_to_exi_exp_denot hx hts hdsep (Memory.is_compatible_empty store)
   obtain ⟨st1, hwle1, hmt1, hval1⟩ := var_exp_denot_inv hkpos hmt h1
   simp only [Ty.exi_val_denot, Ty.val_denot] at hval1
@@ -7419,7 +7440,8 @@ theorem sem_split_strong {x : BVar s .var} {n : Nat} {C : CaptureSet s} {T : Ty 
     obtain ⟨n0, ℓ0, _, hlk', _⟩ := hcells l hl; exact ⟨_, hlk'⟩
   have hpres : ∀ l ∈ ls, store.heap l ≠ none := fun l hl => by
     obtain ⟨c, hc⟩ := hcap l hl; simp [hc]
-  refine ⟨Eval.eval_split hlk ?_, fun R => PrefixSafe.split hlk (PrefixSafe.splitExp_any hpres)⟩
+  refine ⟨Eval.eval_split hlk hlki ?_,
+    fun R => PrefixSafe.split hlk hlki (PrefixSafe.splitExp_any hpres)⟩
   · unfold Exp.splitExp
     apply Eval.eval_letin_simpleval Exp.IsSimpleVal.arr
       (Exp.wf_arr_of (fun l hl => hpres l (List.mem_of_mem_take hl)))
@@ -7664,15 +7686,16 @@ theorem sem_split_strong {x : BVar s .var} {n : Nat} {C : CaptureSet s} {T : Ty 
 /-- **Owned split.**  Splitting consumes the array `x` (its use set carries `x` at `.drop`)
 and packs its two halves with their cell sets as two fresh, disjoint witnesses: a `pack`
 whose evidence is computed at run time. -/
-theorem sem_typ_split {x : BVar s .var} {n : Nat} {C : CaptureSet s} {T : Ty .capt s}
+theorem sem_typ_split {x i : BVar s .var} {C : CaptureSet s} {T : Ty .capt s}
   (hΓ : Γ.IsClosed)
-  (hx : SemanticTyping {} Γ (Exp.var (.bound x)) (.typ (.arr C T))) :
+  (hx : SemanticTyping {} Γ (Exp.var (.bound x)) (.typ (.arr C T)))
+  (hi : SemanticTyping {} Γ (Exp.var (.bound i)) (.typ .nat)) :
   SemanticTyping ((.var (.M .epsilon) (.bound x)) ∪ (.var .drop (.bound x))) Γ
-    (Exp.split (.bound x) n) (.exi 2 (Ty.splitBody C T)) := by
+    (Exp.split (.bound x) (.bound i)) (.exi 2 (Ty.splitBody C T)) := by
   intro env k st store hts hdsep hcompat
   simp only [Ty.exi_exp_denot, Exp.subst, Subst.from_TypeEnv, Var.subst]
   intro hmt
-  obtain ⟨hev, hps⟩ := sem_split_strong (n := n) hΓ hx hts hdsep hcompat hmt
+  obtain ⟨hev, hps⟩ := sem_split_strong hΓ hx hi hts hdsep hcompat hmt
   exact ⟨⟨hev.1, fun t v m' hb hg => (hev.2 t v m' hb hg).1⟩, hps _⟩
 
 /-- Continuation runner for the borrowed split: after `split x n` produced
@@ -8066,11 +8089,12 @@ theorem Ty.splitBody_closed {C : CaptureSet s} {T : Ty .capt s} (hT : T.IsClosed
 /-- **Borrowed split** (Capybara's `splitAt`): `unpack 2 (split x n) u` under the
 borrowed rule.  `x` is not consumed; the halves are bound as access-only capture
 variables bounded by `{x}`, with a lock recording their separation. -/
-theorem sem_typ_splitb {x : BVar s .var} {n : Nat} {C C2 : CaptureSet s} {T : Ty .capt s}
+theorem sem_typ_splitb {x i : BVar s .var} {C C2 : CaptureSet s} {T : Ty .capt s}
   {U : Ty .exi s} {u : Exp ((s.extendCVars 2),x)}
   (hΓ : Γ.IsClosed)
   (hclosed_C2 : C2.IsClosed)
   (hx : SemanticTyping {} Γ (Exp.var (.bound x)) (.typ (.arr C T)))
+  (hi : SemanticTyping {} Γ (Exp.var (.bound i)) (.typ .nat))
   (hu : SemanticTyping
     ((((C2.rename (Rename.weakenCVars 2)).rename (Rename.succ (k := .lock))).rename
         Rename.succ) ∪
@@ -8084,7 +8108,7 @@ theorem sem_typ_splitb {x : BVar s .var} {n : Nat} {C C2 : CaptureSet s} {T : Ty
     (((U.rename (Rename.weakenCVars 2)).rename (Rename.succ (k := .lock))).rename
       Rename.succ)) :
   SemanticTyping ((.var (.M .epsilon) (.bound x)) ∪ C2) Γ
-    (Exp.unpack 2 (Exp.split (.bound x) n) u) U := by
+    (Exp.unpack 2 (Exp.split (.bound x) (.bound i)) u) U := by
   intro env k st store hts hdsep hcompat
   simp only [Ty.exi_exp_denot, List.empty_eq]
   intro hmt
@@ -8109,13 +8133,13 @@ theorem sem_typ_splitb {x : BVar s .var} {n : Nat} {C C2 : CaptureSet s} {T : Ty
       change ((reachability_of_loc store.heap (env.lookup_var x).1).applyAccess
         (.M .epsilon)).hasmem mu' l
       simpa only [CapabilitySet.applyAccess_M, CapabilitySet.applyMut] using hm'
-  obtain ⟨hev, hps⟩ := sem_split_strong (n := n) hΓ hx hts hdsep hcompat_split hmt
+  obtain ⟨hev, hps⟩ := sem_split_strong hΓ hx hi hts hdsep hcompat_split hmt
   have hpresent_C2 : ∀ mu l, (C2.denot env store).hasmem mu l → store.heap l ≠ none := by
     intro mu l hmem
     simp only [CaptureSet.denot, CaptureSet.ground_denot_eq_reachability] at hmem
     exact CaptureSet.reachability_dom hmem
   have hprefix : PrefixSafe k store
-      (Exp.unpack 2 (Exp.split (.free (env.lookup_var x).1) n)
+      (Exp.unpack 2 (Exp.split (.free (env.lookup_var x).1) (.free (env.lookup_var i).1))
         (u.subst ((Subst.from_TypeEnv env).liftCVars 2).lift))
       (((CaptureSet.var (.M .epsilon) (.bound x)) ∪ C2).denot env store) := by
     apply PrefixSafe.unpack (hps _)
@@ -8358,19 +8382,21 @@ theorem fundamental
       exact sem_typ_concat (hx_ih hΓ (Exp.IsClosed.var Var.IsClosed.bound))
         (hy_ih hΓ (Exp.IsClosed.var Var.IsClosed.bound)) (fundamental_sepcheck hsep_syn)
   case split =>
-    rename_i hΓ_closed _hdrop hx_syn hx_ih
+    rename_i hΓ_closed _hdrop hx_syn hi_syn hx_ih hi_ih
     cases hclosed_e with
-    | split hx_closed =>
-      cases hx_closed
+    | split hx_closed hi_closed =>
+      cases hx_closed; cases hi_closed
       exact sem_typ_split hΓ_closed (hx_ih hΓ (Exp.IsClosed.var Var.IsClosed.bound))
+        (hi_ih hΓ (Exp.IsClosed.var Var.IsClosed.bound))
   case splitb =>
-    rename_i hΓ_closed hC2 _hao hx_syn hu_syn hx_ih hu_ih
+    rename_i hΓ_closed hC2 _hao hx_syn hi_syn hu_syn hx_ih hi_ih hu_ih
     cases hclosed_e with
     | unpack ht_closed _ =>
       cases ht_closed with
-      | split hx_closed =>
-        cases hx_closed
+      | split hx_closed hi_closed =>
+        cases hx_closed; cases hi_closed
         apply sem_typ_splitb hΓ_closed hC2 (hx_ih hΓ (Exp.IsClosed.var Var.IsClosed.bound))
+          (hi_ih hΓ (Exp.IsClosed.var Var.IsClosed.bound))
         apply hu_ih ?_ (HasType.exp_is_closed hu_syn)
         cases HasType.type_is_closed hx_syn with
         | typ hT =>

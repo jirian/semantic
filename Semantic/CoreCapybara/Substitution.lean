@@ -159,7 +159,7 @@ def Exp.subst : Exp s1 -> Subst s1 s2 -> Exp s2
 | .arr xs, s => .arr (xs.map (·.subst s))
 | .idx x n d, s => .idx (x.subst s) n (d.subst s)
 | .concat x y, s => .concat (x.subst s) (y.subst s)
-| .split x n, s => .split (x.subst s) n
+| .split x y, s => .split (x.subst s) (y.subst s)
 | .pair x y, s => .pair (x.subst s) (y.subst s)
 | .fst x, s => .fst (x.subst s)
 | .snd x, s => .snd (x.subst s)
@@ -802,7 +802,7 @@ theorem Exp.subst_comp {e : Exp s1} {σ1 : Subst s1 s2} {σ2 : Subst s2 s3} :
   | write x y => simp only [Exp.subst, Var.subst_comp]
   | idx x n y => simp only [Exp.subst, Var.subst_comp]
   | concat x y => simp only [Exp.subst, Var.subst_comp]
-  | split x n => simp only [Exp.subst, Var.subst_comp]
+  | split x y => simp only [Exp.subst, Var.subst_comp]
   | pair x y => simp only [Exp.subst, Var.subst_comp]
   | fst x => simp only [Exp.subst, Var.subst_comp]
   | snd x => simp only [Exp.subst, Var.subst_comp]
@@ -1000,7 +1000,7 @@ theorem Exp.subst_id {e : Exp s} :
     simp only [Exp.subst, Var.subst_id]
   | concat x y =>
     simp only [Exp.subst, Var.subst_id]
-  | split x n =>
+  | split x y =>
     simp only [Exp.subst, Var.subst_id]
   | pair x y =>
     simp only [Exp.subst, Var.subst_id]
@@ -1226,7 +1226,7 @@ theorem Exp.subst_asSubst {e : Exp s1} {f : Rename s1 s2} :
     simp only [Exp.subst, Exp.rename, Var.subst_asSubst]
   | concat x y =>
     simp only [Exp.subst, Exp.rename, Var.subst_asSubst]
-  | split x n =>
+  | split x y =>
     simp only [Exp.subst, Exp.rename, Var.subst_asSubst]
   | pair x y =>
     simp only [Exp.subst, Exp.rename, Var.subst_asSubst]
@@ -1706,10 +1706,10 @@ def Exp.is_closed_subst {e : Exp s1} {σ : Subst s1 s2}
     cases hc with | concat hx hy =>
     simp only [Exp.subst]
     exact IsClosed.concat (Var.is_closed_subst hx hsubst) (Var.is_closed_subst hy hsubst)
-  | split x n =>
-    cases hc with | split hx =>
+  | split x y =>
+    cases hc with | split hx hy =>
     simp only [Exp.subst]
-    exact IsClosed.split (Var.is_closed_subst hx hsubst)
+    exact IsClosed.split (Var.is_closed_subst hx hsubst) (Var.is_closed_subst hy hsubst)
   | pair x y =>
     cases hc with | pair hx hy =>
     simp only [Exp.subst]
@@ -2021,10 +2021,10 @@ theorem Exp.subst_closed_inv {e : Exp s1} {σ : Subst s1 s2}
     simp only [Exp.subst] at hclosed
     cases hclosed with | concat hx hy =>
     exact IsClosed.concat (Var.subst_closed_inv hx) (Var.subst_closed_inv hy)
-  | split x n =>
+  | split x y =>
     simp only [Exp.subst] at hclosed
-    cases hclosed with | split hx =>
-    exact IsClosed.split (Var.subst_closed_inv hx)
+    cases hclosed with | split hx hy =>
+    exact IsClosed.split (Var.subst_closed_inv hx) (Var.subst_closed_inv hy)
   | pair x y =>
     simp only [Exp.subst] at hclosed
     cases hclosed with | pair hx hy =>

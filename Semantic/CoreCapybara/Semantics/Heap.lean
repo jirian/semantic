@@ -1607,7 +1607,8 @@ inductive Exp.WfInHeap : Exp s -> Heap -> Prop where
   Exp.WfInHeap (.concat x y) H
 | wf_split :
   Var.WfInHeap x H ->
-  Exp.WfInHeap (.split x n) H
+  Var.WfInHeap y H ->
+  Exp.WfInHeap (.split x y) H
 | wf_pair :
   Var.WfInHeap x H ->
   Var.WfInHeap y H ->
@@ -1712,7 +1713,7 @@ theorem Exp.wf_of_closed {e : Exp s} {H : Heap}
   | arr hxs => exact Exp.WfInHeap.wf_arr (fun x hx => Var.wf_of_closed (hxs x hx))
   | idx hx hd => exact Exp.WfInHeap.wf_idx (Var.wf_of_closed hx) (Var.wf_of_closed hd)
   | concat hx hy => exact Exp.WfInHeap.wf_concat (Var.wf_of_closed hx) (Var.wf_of_closed hy)
-  | split hx => exact Exp.WfInHeap.wf_split (Var.wf_of_closed hx)
+  | split hx hy => exact Exp.WfInHeap.wf_split (Var.wf_of_closed hx) (Var.wf_of_closed hy)
   | pair hx hy => exact Exp.WfInHeap.wf_pair (Var.wf_of_closed hx) (Var.wf_of_closed hy)
   | fst hx => exact Exp.WfInHeap.wf_fst (Var.wf_of_closed hx)
   | snd hx => exact Exp.WfInHeap.wf_snd (Var.wf_of_closed hx)
@@ -1902,7 +1903,8 @@ theorem Exp.wf_monotonic
     exact Exp.WfInHeap.wf_idx (Var.wf_monotonic hsub hwf_x) (Var.wf_monotonic hsub hwf_d)
   | wf_concat hwf_x hwf_y =>
     exact Exp.WfInHeap.wf_concat (Var.wf_monotonic hsub hwf_x) (Var.wf_monotonic hsub hwf_y)
-  | wf_split hwf_x => exact Exp.WfInHeap.wf_split (Var.wf_monotonic hsub hwf_x)
+  | wf_split hwf_x hwf_y =>
+    exact Exp.WfInHeap.wf_split (Var.wf_monotonic hsub hwf_x) (Var.wf_monotonic hsub hwf_y)
   | wf_pair hwf_x hwf_y =>
     exact Exp.WfInHeap.wf_pair (Var.wf_monotonic hsub hwf_x) (Var.wf_monotonic hsub hwf_y)
   | wf_fst hwf_x => exact Exp.WfInHeap.wf_fst (Var.wf_monotonic hsub hwf_x)
@@ -2127,7 +2129,8 @@ theorem Exp.wf_dom_subsumes {h1 h2 : Heap}
     exact .wf_idx (Var.wf_dom_subsumes hsub hwf_x) (Var.wf_dom_subsumes hsub hwf_d)
   | wf_concat hwf_x hwf_y =>
     exact .wf_concat (Var.wf_dom_subsumes hsub hwf_x) (Var.wf_dom_subsumes hsub hwf_y)
-  | wf_split hwf_x => exact .wf_split (Var.wf_dom_subsumes hsub hwf_x)
+  | wf_split hwf_x hwf_y =>
+    exact .wf_split (Var.wf_dom_subsumes hsub hwf_x) (Var.wf_dom_subsumes hsub hwf_y)
   | wf_pair hwf_x hwf_y =>
     exact .wf_pair (Var.wf_dom_subsumes hsub hwf_x) (Var.wf_dom_subsumes hsub hwf_y)
   | wf_fst hwf_x => exact .wf_fst (Var.wf_dom_subsumes hsub hwf_x)
@@ -2391,7 +2394,7 @@ theorem resolve_reachability_monotonic
     exact expand_captures_monotonic hsub _ (CaptureSet.ofVars_wf (Var.wf_pair_list hwf_x hwf_y))
   | wf_idx _ _ => rfl
   | wf_concat _ _ => rfl
-  | wf_split _ => rfl
+  | wf_split _ _ => rfl
   | wf_fst _ => rfl
   | wf_snd _ => rfl
 
@@ -3000,8 +3003,9 @@ theorem Exp.wf_rename
   | wf_concat hwf_x hwf_y =>
     simpa only [Exp.rename] using
       (Exp.WfInHeap.wf_concat (Var.wf_rename hwf_x) (Var.wf_rename hwf_y))
-  | wf_split hwf_x =>
-    simpa only [Exp.rename] using (Exp.WfInHeap.wf_split (Var.wf_rename hwf_x))
+  | wf_split hwf_x hwf_y =>
+    simpa only [Exp.rename] using
+      (Exp.WfInHeap.wf_split (Var.wf_rename hwf_x) (Var.wf_rename hwf_y))
   | wf_pair hwf_x hwf_y =>
     simpa only [Exp.rename] using
       (Exp.WfInHeap.wf_pair (Var.wf_rename hwf_x) (Var.wf_rename hwf_y))
@@ -3383,8 +3387,9 @@ theorem Exp.wf_subst
   | wf_concat hwf_x hwf_y =>
     simpa only [Exp.subst] using
       (Exp.WfInHeap.wf_concat (Var.wf_subst hwf_x hwf_σ) (Var.wf_subst hwf_y hwf_σ))
-  | wf_split hwf_x =>
-    simpa only [Exp.subst] using (Exp.WfInHeap.wf_split (Var.wf_subst hwf_x hwf_σ))
+  | wf_split hwf_x hwf_y =>
+    simpa only [Exp.subst] using
+      (Exp.WfInHeap.wf_split (Var.wf_subst hwf_x hwf_σ) (Var.wf_subst hwf_y hwf_σ))
   | wf_pair hwf_x hwf_y =>
     simpa only [Exp.subst] using
       (Exp.WfInHeap.wf_pair (Var.wf_subst hwf_x hwf_σ) (Var.wf_subst hwf_y hwf_σ))

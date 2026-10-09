@@ -553,8 +553,9 @@ inductive HasType : CaptureSet s -> Ctx s -> Exp s -> Ty .exi s -> Prop where
   Γ.IsClosed ->
   (CaptureSet.var (.M .epsilon) x).droppable Γ ->
   HasType {} Γ (.var x) (.typ (.arr C T)) ->
+  HasType {} Γ (.var i) (.typ .nat) ->
   ----------------------------
-  HasType ((.var (.M .epsilon) x) ∪ (.var .drop x)) Γ (.split x n)
+  HasType ((.var (.M .epsilon) x) ∪ (.var .drop x)) Γ (.split x i)
     (.exi 2 (Ty.splitBody C T))
   /-- Borrowed (scoped) split, Capybara's `splitAt`: `x` is not consumed.  The
   halves are bound as access-only capture variables bounded by `{x}`, and a lock
@@ -566,6 +567,7 @@ inductive HasType : CaptureSet s -> Ctx s -> Exp s -> Ty .exi s -> Prop where
   C2.IsClosed ->
   (CaptureSet.var (.M .epsilon) x).AccessOnly Γ ->
   HasType {} Γ (.var x) (.typ (.arr C T)) ->
+  HasType {} Γ (.var i) (.typ .nat) ->
   HasType
     ((((C2.rename (Rename.weakenCVars 2)).rename (Rename.succ (k := .lock))).rename
         Rename.succ) ∪
@@ -579,7 +581,7 @@ inductive HasType : CaptureSet s -> Ctx s -> Exp s -> Ty .exi s -> Prop where
     (((U.rename (Rename.weakenCVars 2)).rename (Rename.succ (k := .lock))).rename
       Rename.succ) ->
   ----------------------------
-  HasType ((.var (.M .epsilon) x) ∪ C2) Γ (.unpack 2 (.split x n) u) U
+  HasType ((.var (.M .epsilon) x) ∪ C2) Γ (.unpack 2 (.split x i) u) U
 | pair {T1 T2 : Ty .capt s} :
   HasType {} Γ (.var x) (.typ T1) ->
   HasType {} Γ (.var y) (.typ T2) ->

@@ -172,7 +172,7 @@ def Exp.eraseCVars : Exp s -> CaptureSet s -> Exp s
 | .arr xs, _ => .arr xs
 | .idx x n d, _ => .idx x n d
 | .concat x y, _ => .concat x y
-| .split x n, _ => .split x n
+| .split x y, _ => .split x y
 | .pair x y, _ => .pair x y
 | .fst x, _ => .fst x
 | .snd x, _ => .snd x
@@ -644,7 +644,7 @@ theorem Exp.eraseCVars_rename {e : Exp s1} {K : CaptureSet s1} {ρ : Rename s1 s
   | arr xs => rfl
   | idx x n d => rfl
   | concat x y => rfl
-  | split x n => rfl
+  | split x y => rfl
   | pair x y => rfl
   | fst x => rfl
   | snd x => rfl
@@ -3182,16 +3182,18 @@ theorem HasType.erase_kill {s : Sig} {C : CaptureSet s} {Γ : Ctx s} {e : Exp s}
     simp only [CaptureSet.eraseCVars_var, CaptureSet.eraseCVars, Exp.eraseCVars,
       Ty.eraseCVars] at hx' hy' ⊢
     exact .concat hx' hy' (by simpa only [CaptureSet.eraseCVars_var] using hsep.erase_kill K)
-  | split hΓ hdrop hx ih =>
+  | split hΓ hdrop hx hi ih ihi =>
     have hx' := ih K
+    have hi' := ihi K
     simp only [CaptureSet.eraseCVars_var, CaptureSet.eraseCVars, Exp.eraseCVars,
-      Ty.eraseCVars] at hx' ⊢
+      Ty.eraseCVars] at hx' hi' ⊢
     rw [Ty.splitBody_eraseCVars]
     exact .split (Ctx.kill_peaks_cs_isClosed (hΓ.eraseCVars K))
-      (by simpa only [CaptureSet.eraseCVars_var] using hdrop.eraseCVars (K := K)) hx'
-  | splitb hΓ hC2 hao hx hu ihx ihu =>
+      (by simpa only [CaptureSet.eraseCVars_var] using hdrop.eraseCVars (K := K)) hx' hi'
+  | splitb hΓ hC2 hao hx hi hu ihx ihi ihu =>
     have hx' := ihx K
-    simp only [CaptureSet.eraseCVars, Exp.eraseCVars, Ty.eraseCVars] at hx'
+    have hi' := ihi K
+    simp only [CaptureSet.eraseCVars, Exp.eraseCVars, Ty.eraseCVars] at hx' hi'
     have hbody := ihu
       (((K.rename (Rename.weakenCVars 2)).rename (Rename.succ (k := .lock))).rename
         (Rename.succ (k := .var)))
@@ -3200,7 +3202,7 @@ theorem HasType.erase_kill {s : Sig} {C : CaptureSet s} {Γ : Ctx s} {e : Exp s}
     rw [Ty.splitBody_eraseCVars] at hbody
     simp only [Exp.eraseCVars, CaptureSet.eraseCVars_union]
     refine .splitb (Ctx.kill_peaks_cs_isClosed (hΓ.eraseCVars K)) (hC2.eraseCVars K)
-      (by simpa only [CaptureSet.eraseCVars_var] using hao.eraseCVars (K := K)) hx' ?_
+      (by simpa only [CaptureSet.eraseCVars_var] using hao.eraseCVars (K := K)) hx' hi' ?_
     convert hbody using 1
     · have hKbody :
           (((K.rename (Rename.weakenCVars 2)).rename

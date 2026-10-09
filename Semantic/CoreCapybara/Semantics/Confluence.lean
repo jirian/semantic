@@ -362,7 +362,7 @@ theorem Step.aeq_sim {t : Trace} {m m' : Memory} {e1 e1' e2 : Exp {}}
   | step_idx h1 h2 => cases hae with | eq h => exact ⟨_, h ▸ Step.step_idx h1 h2, Exp.AEq.refl _⟩
   | step_concat h1 h2 =>
     cases hae with | eq h => exact ⟨_, h ▸ Step.step_concat h1 h2, Exp.AEq.refl _⟩
-  | step_split h1 => cases hae with | eq h => exact ⟨_, h ▸ Step.step_split h1, Exp.AEq.refl _⟩
+  | step_split h1 h1i => cases hae with | eq h => exact ⟨_, h ▸ Step.step_split h1 h1i, Exp.AEq.refl _⟩
   | step_fst h1 => cases hae with | eq h => exact ⟨_, h ▸ Step.step_fst h1, Exp.AEq.refl _⟩
   | step_snd h1 => cases hae with | eq h => exact ⟨_, h ▸ Step.step_snd h1, Exp.AEq.refl _⟩
   | step_cond_var_true hlk =>
@@ -899,7 +899,8 @@ theorem Exp.renameLoc_eq_of_wf {s} {e : Exp s} {h : Heap} (hwf : e.WfInHeap h)
     simp only [Exp.renameLoc, Var.renameLoc_eq_of_wf hx hfix, Var.renameLoc_eq_of_wf hd hfix]
   | wf_concat hx hy =>
     simp only [Exp.renameLoc, Var.renameLoc_eq_of_wf hx hfix, Var.renameLoc_eq_of_wf hy hfix]
-  | wf_split hx => simp only [Exp.renameLoc, Var.renameLoc_eq_of_wf hx hfix]
+  | wf_split hx hy =>
+    simp only [Exp.renameLoc, Var.renameLoc_eq_of_wf hx hfix, Var.renameLoc_eq_of_wf hy hfix]
   | wf_pair hx hy =>
     simp only [Exp.renameLoc, Var.renameLoc_eq_of_wf hx hfix, Var.renameLoc_eq_of_wf hy hfix]
   | wf_fst hx => simp only [Exp.renameLoc, Var.renameLoc_eq_of_wf hx hfix]
@@ -1091,9 +1092,10 @@ theorem Step.frame_off {ma mb ma' : Memory} {e e' : Exp {}} {t : Trace} {c : Nat
     obtain ⟨ci, hci⟩ := hc
     exact ⟨mb, Step.step_concat ((hag _ (Memory.val_ne_cap hci hx)) ▸ hx)
       ((hag _ (Memory.val_ne_cap hci hy)) ▸ hy), hag, rfl⟩
-  | step_split hlk =>
+  | step_split hlk hlki =>
     obtain ⟨ci, hci⟩ := hc
-    exact ⟨mb, Step.step_split ((hag _ (Memory.val_ne_cap hci hlk)) ▸ hlk), hag, rfl⟩
+    exact ⟨mb, Step.step_split ((hag _ (Memory.val_ne_cap hci hlk)) ▸ hlk)
+      ((hag _ (Memory.val_ne_cap hci hlki)) ▸ hlki), hag, rfl⟩
   | step_fst hlk =>
     obtain ⟨ci, hci⟩ := hc
     exact ⟨mb, Step.step_fst ((hag _ (Memory.val_ne_cap hci hlk)) ▸ hlk), hag, rfl⟩
@@ -1243,12 +1245,15 @@ theorem Step.frame_off_absent {ma mb ma' : Memory} {e e' : Exp {}} {t : Trace} {
         rw [h] at hy1; rw [show mb.heap c = none from hcb] at hy1; cases hy1
       exact ⟨mb, Step.step_concat ((hag xx hxc) ▸ hx) ((hag yy hyc) ▸ hy), hag, hcb,
         by simp [Trace.touched]⟩
-  | step_split hlk =>
+  | step_split hlk hlki =>
     match hwf with
-    | .wf_split (.wf_free (n := xx) hx1) =>
+    | .wf_split (.wf_free (n := xx) hx1) (.wf_free (n := ii) hi1) =>
       have hxc : xx ≠ c := fun h => by
         rw [h] at hx1; rw [show mb.heap c = none from hcb] at hx1; cases hx1
-      exact ⟨mb, Step.step_split ((hag xx hxc) ▸ hlk), hag, hcb, by simp [Trace.touched]⟩
+      have hic : ii ≠ c := fun h => by
+        rw [h] at hi1; rw [show mb.heap c = none from hcb] at hi1; cases hi1
+      exact ⟨mb, Step.step_split ((hag xx hxc) ▸ hlk) ((hag ii hic) ▸ hlki), hag, hcb,
+        by simp [Trace.touched]⟩
   | step_fst hlk =>
     match hwf with
     | .wf_fst (.wf_free (n := xx) hx1) =>
@@ -1395,7 +1400,7 @@ theorem Step.untouched_preserved {t : Trace} {m m' : Memory} {e e' : Exp {}} {c 
     m'.lookup c = m.lookup c := by
   induction hstep with
   | step_apply _ | step_invoke _ _ | step_tapply _ | step_capply _ | step_consumer_app _
-  | step_unwrap _ | step_idx _ _ | step_concat _ _ | step_split _ | step_fst _ | step_snd _
+  | step_unwrap _ | step_idx _ _ | step_concat _ _ | step_split _ _ | step_fst _ | step_snd _
   | step_cond_var_true _ | step_cond_var_false _ | step_read _ _
   | step_rename | step_unpack | step_par_join _ _ => rfl
   | step_write hx _ =>
@@ -1469,11 +1474,12 @@ theorem Step.frame_add {m ma m' : Memory} {e e' : Exp {}} {t : Trace} {c : Nat}
       have hxc : xx ≠ c := Memory.present_ne_absent hx1 hc
       have hyc : yy ≠ c := Memory.present_ne_absent hy1 hc
       exact ⟨ma, Step.step_concat ((hag xx hxc) ▸ hx) ((hag yy hyc) ▸ hy), hag, rfl⟩
-  | step_split hlk =>
+  | step_split hlk hlki =>
     match hwf with
-    | .wf_split (.wf_free (n := xx) hx1) =>
+    | .wf_split (.wf_free (n := xx) hx1) (.wf_free (n := ii) hi1) =>
       have hxc : xx ≠ c := Memory.present_ne_absent hx1 hc
-      exact ⟨ma, Step.step_split ((hag xx hxc) ▸ hlk), hag, rfl⟩
+      have hic : ii ≠ c := Memory.present_ne_absent hi1 hc
+      exact ⟨ma, Step.step_split ((hag xx hxc) ▸ hlk) ((hag ii hic) ▸ hlki), hag, rfl⟩
   | step_fst hlk =>
     match hwf with
     | .wf_fst (.wf_free (n := xx) hx1) =>
@@ -1607,7 +1613,7 @@ theorem Step.delta {t : Trace} {m m' : Memory} {e e' : Exp {}} (hstep : Step t m
       ∀ l, l ≠ c → m.lookup l = m'.lookup l) := by
   induction hstep with
   | step_apply _ | step_invoke _ _ | step_tapply _ | step_capply _ | step_consumer_app _
-  | step_unwrap _ | step_idx _ _ | step_concat _ _ | step_split _ | step_fst _ | step_snd _
+  | step_unwrap _ | step_idx _ _ | step_concat _ _ | step_split _ _ | step_fst _ | step_snd _
   | step_cond_var_true _ | step_cond_var_false _ | step_read _ _
   | step_rename | step_unpack | step_par_join _ _ => exact Or.inl rfl
   | step_write hx _ =>
@@ -1932,11 +1938,12 @@ theorem local_diamond {ts1 : Trace} {m ma : Memory} {e ea : Exp {}}
       obtain rfl := Memory.lookup_arr_eq hx hx2
       obtain rfl := Memory.lookup_arr_eq hy hy2
       exact Diamond.det rfl rfl rfl
-  | step_split hlk =>
+  | step_split hlk hlki =>
     intro D ts2 mb eb hD hwf hst2
     cases hst2 with
-    | step_split hlk2 =>
+    | step_split hlk2 hlk2i =>
       obtain rfl := Memory.lookup_arr_eq hlk hlk2
+      obtain rfl := Memory.lookup_nat_eq hlki hlk2i
       exact Diamond.det rfl rfl rfl
   | step_fst hlk =>
     intro D ts2 mb eb hD hwf hst2

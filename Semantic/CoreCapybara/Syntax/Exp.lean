@@ -42,8 +42,8 @@ inductive Exp : Sig -> Type where
 | idx : Var .var s -> Nat -> Var .var s -> Exp s
 /-- `concat a b`: joins two separated arrays. -/
 | concat : Var .var s -> Var .var s -> Exp s
-/-- `split a n`: consumes `a` and splits it at `n` into two fresh arrays. -/
-| split : Var .var s -> Nat -> Exp s
+/-- `split a i`: consumes `a` and splits it at the position held by `i` into two fresh arrays. -/
+| split : Var .var s -> Var .var s -> Exp s
 /-- A pair of variables. -/
 | pair : Var .var s -> Var .var s -> Exp s
 /-- First projection. -/
@@ -82,7 +82,7 @@ def Exp.rename : Exp s1 -> Rename s1 s2 -> Exp s2
 | .arr xs, f => .arr (xs.map (·.rename f))
 | .idx x n d, f => .idx (x.rename f) n (d.rename f)
 | .concat x y, f => .concat (x.rename f) (y.rename f)
-| .split x n, f => .split (x.rename f) n
+| .split x y, f => .split (x.rename f) (y.rename f)
 | .pair x y, f => .pair (x.rename f) (y.rename f)
 | .fst x, f => .fst (x.rename f)
 | .snd x, f => .snd (x.rename f)
@@ -206,7 +206,7 @@ def Exp.rename_id {e : Exp s} : e.rename (Rename.id) = e := by
     simp only [Exp.rename, Var.rename_id]
   | concat x y =>
     simp only [Exp.rename, Var.rename_id]
-  | split x n =>
+  | split x y =>
     simp only [Exp.rename, Var.rename_id]
   | pair x y =>
     simp only [Exp.rename, Var.rename_id]
@@ -302,7 +302,7 @@ theorem Exp.rename_comp {e : Exp s1} {f : Rename s1 s2} {g : Rename s2 s3} :
     simp only [Exp.rename, Var.rename_comp]
   | concat x y =>
     simp only [Exp.rename, Var.rename_comp]
-  | split x n =>
+  | split x y =>
     simp only [Exp.rename, Var.rename_comp]
   | pair x y =>
     simp only [Exp.rename, Var.rename_comp]
@@ -363,7 +363,7 @@ inductive Exp.IsClosed : Exp s -> Prop where
 | arr : (∀ x ∈ xs, Var.IsClosed x) -> Exp.IsClosed (.arr xs)
 | idx : Var.IsClosed x -> Var.IsClosed d -> Exp.IsClosed (.idx x n d)
 | concat : Var.IsClosed x -> Var.IsClosed y -> Exp.IsClosed (.concat x y)
-| split : Var.IsClosed x -> Exp.IsClosed (.split x n)
+| split : Var.IsClosed x -> Var.IsClosed y -> Exp.IsClosed (.split x y)
 | pair : Var.IsClosed x -> Var.IsClosed y -> Exp.IsClosed (.pair x y)
 | fst : Var.IsClosed x -> Exp.IsClosed (.fst x)
 | snd : Var.IsClosed x -> Exp.IsClosed (.snd x)
